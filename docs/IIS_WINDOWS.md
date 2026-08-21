@@ -17,7 +17,18 @@ Caminho sugerido no servidor: `C:\apps\cigam-waydata`. Dados persistentes: `C:\a
 - Corepack / pnpm 11.9.0
 - [URL Rewrite](https://www.iis.net/downloads/microsoft/url-rewrite)
 - [Application Request Routing (ARR)](https://www.iis.net/downloads/microsoft/application-request-routing)
-- [WinSW](https://github.com/winsw/winsw/releases) (`WinSW.NET8.exe` ou `WinSW.NET4.exe` se não houver .NET 8)
+- [WinSW](https://github.com/winsw/winsw/releases): prefira **`WinSW-x64.exe`** (não precisa de .NET). Se usar `WinSW.NET8.exe`, instale o **.NET 8 Runtime**, não o SDK: https://dotnet.microsoft.com/download/dotnet/8.0
+
+O aviso `Download a .NET SDK` / `sdk-not-found` aparece quando o `WinSW.NET8.exe` roda sem o Runtime 8. Não é erro do Node nem do IIS.
+
+Caminho customizado (ex.: pasta do IIS):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\windows\install-services.ps1 `
+  -InstallRoot C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata
+```
+
+O script agora acha sozinho o `deploy\windows\WinSW.exe`. Se os serviços já existirem, ele só atualiza o XML e reinicia.
 
 No PowerShell **como Administrador**:
 
@@ -39,7 +50,7 @@ pnpm config set node-linker hoisted
 ## 2. Copiar o código e o `.env`
 
 1. Copie o repositório para `C:\apps\cigam-waydata`.
-2. Coloque o `.env` **na raiz** (não versionar). Ajuste pelo menos:
+2. Copie `deploy\windows\env.iis.example` para `C:\apps\cigam-waydata\.env` e preencha `CIGAM_TOKEN` e `WAYDATA_TOKEN` **no servidor**. Não envie o `.env` com token por WhatsApp.
 
 ```env
 NODE_ENV=production
@@ -113,13 +124,25 @@ Rollback: no `.env` deixe `SYNC_MODE=read_only` (ou `disabled`) e `Restart-Servi
 
 ## 5. Site IIS (HTTPS na frente)
 
-1. Crie um site, por exemplo **cigam-waydata**.
-2. Physical path: `C:\apps\cigam-waydata\deploy\iis` (só o `web.config` de reverse proxy; **não** aponte para `data\`).
-3. Binding: HTTP 80 e HTTPS 443 com o certificado corporativo.
-4. Application pool: **No Managed Code**, Integrated. Idle timeout = `0`. Regular recycle: desative ou coloque numa janela controlada — o recycle **não** mata o worker (serviço separado), mas derruba o proxy até o IIS voltar.
-5. Copie `deploy\iis\web.config` para a pasta física do site se ainda não estiver lá.
+Não crie um site novo se o portal já existir. No Panebras o monitor entra no **CGPortaisPanebras**, em `/WayData/monitor`.
 
-O rewrite manda tudo para `http://127.0.0.1:3000`. O Node não deve ficar exposto na placa de rede pública.
+1. No servidor IIS: **Application Request Routing Cache** → Server Proxy Settings → **Enable proxy**.
+2. Em `CGPortaisPanebras` → `WayData` → botão direito → **Add Application**:
+   - Alias: `monitor`
+   - Physical path: `{InstallRoot}\deploy\iis` (só o `web.config`; **não** aponte para a raiz do código nem para `data\`)
+   - App pool: **No Managed Code**, Integrated
+3. Não altere Bindings nem o caminho físico do site `CGPortaisPanebras`.
+4. O Next precisa de `basePath` nesse subcaminho. Build **com** a variável:
+
+```powershell
+$env:NEXT_PUBLIC_BASE_PATH="/WayData/monitor"
+pnpm --filter @cigam-waydata/monitor build
+Restart-Service cigam-waydata-monitor
+```
+
+URL pública: `https://panebrasportais.cigam.cloud/WayData/monitor`
+
+O rewrite manda esse prefixo para `http://127.0.0.1:3000/WayData/monitor`. O Node não deve ficar exposto na placa de rede pública.
 
 Restrinja o monitor à VPN/rede interna. Se quiser chave extra, defina `MONITOR_API_KEY` no `.env` e envie `x-monitor-key` no proxy corporativo.
 

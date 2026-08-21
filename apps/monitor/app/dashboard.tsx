@@ -68,11 +68,12 @@ export function Dashboard({ initialEvents, initialHealth, today }: DashboardProp
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visibleEvents = filtered.slice((page - 1) * pageSize, page * pageSize);
   const isReadOnly = initialHealth?.syncMode === "READ_ONLY";
+  const apiBase = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
   useEffect(() => setPage(1), [dateFrom, dateTo, status, entity, operation, search]);
 
   function refresh() {
     startTransition(async () => {
-      const response = await fetch(`/api/logs?from=${dateFrom}&to=${dateTo}`, { cache: "no-store" });
+      const response = await fetch(`${apiBase}/api/logs?from=${dateFrom}&to=${dateTo}`, { cache: "no-store" });
       const data = await response.json() as { events: LogEvent[] };
       setEvents(data.events);
       setNotice("Dados atualizados agora.");
@@ -81,7 +82,7 @@ export function Dashboard({ initialEvents, initialHealth, today }: DashboardProp
 
   function reprocess(event: LogEvent) {
     startTransition(async () => {
-      const response = await fetch("/api/reprocess", {
+      const response = await fetch(`${apiBase}/api/reprocess`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ correlationId: event.correlationId, entity: event.entity, reference: referenceOf(event) }),
@@ -91,7 +92,7 @@ export function Dashboard({ initialEvents, initialHealth, today }: DashboardProp
   }
 
   function exportLogs() {
-    window.location.assign(`/api/export?from=${dateFrom}&to=${dateTo}`);
+    window.location.assign(`${apiBase}/api/export?from=${dateFrom}&to=${dateTo}`);
   }
 
   const workerSeen = typeof initialHealth?.lastSeenAt === "string" ? formatTime(initialHealth.lastSeenAt) : "sem sinal";

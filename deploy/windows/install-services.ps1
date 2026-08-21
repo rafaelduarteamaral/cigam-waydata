@@ -18,6 +18,11 @@ if (-not (Test-Path $workerTsx)) {
 $envFile = Join-Path $InstallRoot ".env"
 $logPath = Join-Path $InstallRoot "deploy\windows\logs"
 $deployDir = Join-Path $InstallRoot "deploy\windows"
+if (-not $WinSwExe) {
+  foreach ($candidate in @((Join-Path $deployDir "WinSW.exe"), (Join-Path $deployDir "WinSW-x64.exe"), (Join-Path $deployDir "WinSW.NET8.exe"))) {
+    if (Test-Path $candidate) { $WinSwExe = $candidate; break }
+  }
+}
 
 if (-not (Test-Path $NodeExe)) { throw "Node.js não encontrado em $NodeExe. Instale o Node 22 LTS." }
 if (-not (Test-Path $monitorNext)) { throw "Build do monitor ausente. Rode pnpm install e pnpm --filter @cigam-waydata/monitor build." }
@@ -54,7 +59,7 @@ Write-ServiceXml `
   -Description "Monitor Next.js da integração CIGAM x WayData (127.0.0.1:3000)." `
   -Arguments "`"$monitorNext`" start -H 127.0.0.1 -p 3000" `
   -WorkingDirectory (Join-Path $InstallRoot "apps\monitor") `
-  -EnvVars @{ NODE_ENV = "production"; TZ = "America/Sao_Paulo"; DATA_DIRECTORY = $DataDirectory } `
+  -EnvVars @{ NODE_ENV = "production"; TZ = "America/Sao_Paulo"; DATA_DIRECTORY = $DataDirectory; NEXT_PUBLIC_BASE_PATH = "/WayData/monitor" } `
   -OutFile (Join-Path $deployDir "CigamWayData.Monitor.xml")
 
 Write-ServiceXml `
@@ -94,9 +99,18 @@ Copy-Item $WinSwExe $workerExe -Force
 Copy-Item (Join-Path $deployDir "CigamWayData.Monitor.xml") (Join-Path $deployDir "cigam-monitor.xml") -Force
 Copy-Item (Join-Path $deployDir "CigamWayData.Worker.xml") (Join-Path $deployDir "cigam-worker.xml") -Force
 
-& $monitorExe install
-& $workerExe install
-Start-Service cigam-waydata-monitor
-Start-Service cigam-waydata-worker
+function Install-OrRefresh([string]$Exe, [string]$ServiceName) {
+  $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+  if ($svc) {
+    if ($svc.Status -ne "Stopped") { Stop-Service $ServiceName -Force }
+    Start-Service $ServiceName
+    return
+  }
+  & $Exe install
+  Start-Service $ServiceName
+}
+
+Install-OrRefresh $monitorExe "cigam-waydata-monitor"
+Install-OrRefresh $workerExe "cigam-waydata-worker"
 Get-Service cigam-waydata-monitor, cigam-waydata-worker | Format-Table Name, Status, StartType
 Write-Host "Health local: http://127.0.0.1:3000/api/health"
