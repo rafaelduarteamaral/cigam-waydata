@@ -1,0 +1,158 @@
+{
+  "info": {
+    "_postman_id": "05518cc1-5136-4bec-8496-b0e9c04f16ee",
+    "name": "api ERP",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "13472416"
+  },
+  "item": [
+    {
+      "name": "EMPRESA - DEV",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{CIGAM_TOKEN}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"filtros\":{\r\n     \"pagina\":\"1\"\r\n    ,\"cnpjcpf\":\"10905224000104\"\r\n    }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:50407/API/API.asmx/Empresas",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "50407",
+          "path": [
+            "API",
+            "API.asmx",
+            "Empresas"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "EMPRESA - PANEBRAS",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{CIGAM_TOKEN}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"filtros\":{\r\n     \"pagina\":\"1\"\r\n    ,\"cnpjcpf\":\"10905224000104\"\r\n    }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://panebrasportais.cigam.cloud/API_ERP/api/API.asmx/Empresas",
+          "protocol": "https",
+          "host": [
+            "panebrasportais",
+            "cigam",
+            "cloud"
+          ],
+          "path": [
+            "API_ERP",
+            "api",
+            "API.asmx",
+            "Empresas"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Cargas_Buscar - DEV",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{CIGAM_TOKEN}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"filtros\":{\r\n     \"dt_inicial\":\"2026-08-03\",\r\n     \"dt_final\":\"2026-08-05\",\r\n     \"UN\":\"001\",\r\n     \"Pagina\":\"1\"\r\n    }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:50407/API/API.asmx/Cargas_Buscar",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "50407",
+          "path": [
+            "API",
+            "API.asmx",
+            "Cargas_Buscar"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Cargas_Buscar - PANEBRAS",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{CIGAM_TOKEN}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"filtros\":{\r\n     \"dt_inicial\":\"2026-08-03\",\r\n     \"dt_final\":\"2026-08-05\",\r\n     \"UN\":\"001\",\r\n     \"Pagina\":\"1\"\r\n    }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://panebrasportais.cigam.cloud/API_ERP/api/API.asmx/Cargas_Buscar",
+          "protocol": "https",
+          "host": [
+            "panebrasportais",
+            "cigam",
+            "cloud"
+          ],
+          "path": [
+            "API_ERP",
+            "api",
+            "API.asmx",
+            "Cargas_Buscar"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

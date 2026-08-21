@@ -1,0 +1,61 @@
+{
+  "info": {
+    "name": "WayData writes",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Escritas IntegraWay ausentes no Kaivor. Importar no HTTP Client com o token só no environment, nunca no JSON."
+  },
+  "item": [
+    {
+      "name": "PUT cliente",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Authorization", "value": "Bearer {{WAYDATA_TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"codigo\": \"001277\",\n  \"nome\": \"Cliente homologacao\",\n  \"classificacao\": \"A\"\n}" },
+        "url": "{{WAYDATA_BASE_URL}}/cliente"
+      }
+    },
+    {
+      "name": "PATCH cliente",
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Authorization", "value": "Bearer {{WAYDATA_TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"codigo\": \"001277\",\n  \"nome\": \"Cliente homologacao\",\n  \"classificacao\": \"A\"\n}" },
+        "url": "{{WAYDATA_BASE_URL}}/cliente"
+      }
+    },
+    {
+      "name": "PUT Roteirizacao/integracao",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Authorization", "value": "Bearer {{WAYDATA_TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"nome\": \"Carga homolog\",\n  \"codigoClientePartida\": \"002628\",\n  \"codigoClienteChegada\": \"002628\",\n  \"dataInicial\": \"2026-08-08T08:00:00\",\n  \"dataFinal\": \"2026-08-08T18:00:00\",\n  \"codigoRoteirizacao\": 0,\n  \"flagTracking\": true,\n  \"veiculosRoteirizacao\": []\n}" },
+        "url": "{{WAYDATA_BASE_URL}}/Roteirizacao/integracao"
+      }
+    },
+    {
+      "name": "PATCH Roteirizacao/integracao",
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Authorization", "value": "Bearer {{WAYDATA_TOKEN}}" }, { "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"nome\": \"Carga homolog\",\n  \"codigoClientePartida\": \"002628\",\n  \"codigoClienteChegada\": \"002628\",\n  \"dataInicial\": \"2026-08-08T08:00:00\",\n  \"dataFinal\": \"2026-08-08T18:00:00\",\n  \"codigoRoteirizacao\": 1,\n  \"flagTracking\": true,\n  \"veiculosRoteirizacao\": []\n}" },
+        "url": "{{WAYDATA_BASE_URL}}/Roteirizacao/integracao"
+      }
+    },
+    {
+      "name": "DELETE rota",
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{WAYDATA_TOKEN}}" }],
+        "url": "{{WAYDATA_BASE_URL}}/rota?codigoRota=1"
+      }
+    },
+    {
+      "name": "DELETE pedido",
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{WAYDATA_TOKEN}}" }],
+        "url": "{{WAYDATA_BASE_URL}}/pedido?codigoPedido=36858"
+      }
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "capturedAt": "2026-07-18T19:08:08.084481-03:00",
+  "baseUrl": "https://wayds.net/integraway/api/v1",
+  "total": 15,
+  "requests": [
+    {
+      "name": "clientes",
+      "url": "https://wayds.net/integraway/api/v1/cliente?pagina=1&quantidade=10",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "cliente_por_id",
+      "url": "https://wayds.net/integraway/api/v1/cliente/id?codigo=12345&apenasAtivos=true",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "remessas_nao_roteirizadas",
+      "url": "https://wayds.net/integraway/api/v1/remessa?flagnaoroteirizado=true",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "remessa_por_numero",
+      "url": "https://wayds.net/integraway/api/v1/remessa?numeroPedido=12345",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "rotas_capa",
+      "url": "https://wayds.net/integraway/api/v1/rota/capa?dataInicial=2026-07-01&dataFinal=2026-07-18",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "rotas_completas_periodo",
+      "url": "https://wayds.net/integraway/api/v1/rota?dataInicial=2026-07-01&dataFinal=2026-07-18",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "rota_completa_por_codigo",
+      "url": "https://wayds.net/integraway/api/v1/rota?codigoRota=12345",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "status_rotas",
+      "url": "https://wayds.net/integraway/api/v1/rota/status?data=2026-07-18",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "codigo_entrega_pedido",
+      "url": "https://wayds.net/integraway/api/v1/pedido/codigoEntrega?codigoRoteAtivo=12345&codigoPedido=12345",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "status_pedido",
+      "url": "https://wayds.net/integraway/api/v1/pedido/statusPedido?codigoPedido=12345",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "situacao_pedido",
+      "url": "https://wayds.net/integraway/api/v1/pedido/situacao?codigoPedido=12345",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "resumo_status_pedidos",
+      "url": "https://wayds.net/integraway/api/v1/pedido/resumoStatusPedidos?dataInicio=2026-07-15&dataFim=2026-07-18",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "trajeto_rota",
+      "url": "https://wayds.net/integraway/api/v1/trajeto/kmxnotafiscal?codigoRota=12345",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "ativos_resumo",
+      "url": "https://wayds.net/integraway/api/v1/ativo/resumo",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "relatorio_contas",
+      "url": "https://wayds.net/integraway/api/v1/relatorios/cadastro/contas",
+      "status": 401,
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "cigam-waydata",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --parallel --filter @cigam-waydata/monitor --filter @cigam-waydata/worker dev",
+    "dev:monitor": "pnpm --filter @cigam-waydata/monitor dev",
+    "dev:worker": "pnpm --filter @cigam-waydata/worker dev",
+    "start:worker": "pnpm --filter @cigam-waydata/worker start",
+    "start:monitor": "pnpm --filter @cigam-waydata/monitor start",
+    "start:prod:monitor": "pnpm --filter @cigam-waydata/monitor start -- -H 127.0.0.1 -p 3000",
+    "start:prod:worker": "pnpm --filter @cigam-waydata/worker start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r typecheck",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "homolog:once": "tsx scripts/homolog-once.ts"
+  },
+  "dependencies": {
+    "@cigam-waydata/file-logger": "workspace:*",
+    "@cigam-waydata/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "^5.9.3",
+    "vitest": "latest"
+  }
+}

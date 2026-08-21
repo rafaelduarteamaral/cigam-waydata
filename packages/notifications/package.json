@@ -1,0 +1,10 @@
+{
+  "name": "@cigam-waydata/notifications",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": { "build": "tsc --noEmit", "typecheck": "tsc --noEmit" },
+  "dependencies": { "nodemailer": "latest" },
+  "devDependencies": { "@types/nodemailer": "latest", "typescript": "^5.9.3" }
+}

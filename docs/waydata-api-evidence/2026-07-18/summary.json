@@ -1,0 +1,41 @@
+{
+  "capturedAt": "2026-07-18T17:36:20.917687-03:00",
+  "selectedBaseUrl": "https://wayds.net/integraway/api",
+  "requests": [
+    {
+      "name": "clientes_pagina_1",
+      "url": "https://wayds.net/integraway/api/v1/cliente?pagina=1&quantidade=10",
+      "status": 401,
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "cliente_exemplo_id",
+      "url": "https://wayds.net/integraway/api/v1/cliente/id?codigo=123456789",
+      "status": 401,
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "remessas",
+      "url": "https://wayds.net/integraway/api/v1/remessa",
+      "status": 401,
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "rotas_capa_periodo",
+      "url": "https://wayds.net/integraway/api/v1/rota/capa?dataInicial=2026-07-01&dataFinal=2026-07-18",
+      "status": 401,
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "name": "rota_exemplo_completa",
+      "url": "https://wayds.net/integraway/api/v1/rota?codigorota=22212",
+      "status": 401,
+      "bytes": 0,
+      "error": "HTTP Error 401: Unauthorized"
+    }
+  ]
+}

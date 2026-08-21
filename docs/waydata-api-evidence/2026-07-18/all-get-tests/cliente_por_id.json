@@ -1,0 +1,19 @@
+{
+  "capturedAt": "2026-07-18T19:08:06.408855-03:00",
+  "environment": "homologacao",
+  "request": {
+    "method": "GET",
+    "url": "https://wayds.net/integraway/api/v1/cliente/id?codigo=12345&apenasAtivos=true",
+    "headers": {
+      "Authorization": "Bearer <REDACTED>",
+      "Accept": "application/json"
+    }
+  },
+  "response": {
+    "status": 401,
+    "contentType": null,
+    "wwwAuthenticate": "Bearer error=\"invalid_token\", error_description=\"The signature is invalid\"",
+    "body": null
+  },
+  "transportError": "HTTP Error 401: Unauthorized"
+}

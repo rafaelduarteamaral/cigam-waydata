@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+data/logs/*.jsonl
+data/reprocess/*.jsonl
+data/runtime/*.json
+**/data/logs/*.jsonl
+**/data/runtime/*.json
+!data/**/.gitkeep
+deploy/windows/*.exe
+deploy/windows/logs/

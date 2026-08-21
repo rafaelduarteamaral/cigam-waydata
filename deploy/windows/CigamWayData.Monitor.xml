@@ -1,0 +1,17 @@
+<service>
+  <id>cigam-waydata-monitor</id>
+  <name>CIGAM WayData Monitor</name>
+  <description>Monitor Next.js da integração CIGAM × WayData (127.0.0.1:3000). O IIS faz o reverse proxy público.</description>
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>"C:\apps\cigam-waydata\apps\monitor\node_modules\next\dist\bin\next" start -H 127.0.0.1 -p 3000</arguments>
+  <workingdirectory>C:\apps\cigam-waydata\apps\monitor</workingdirectory>
+  <logpath>C:\apps\cigam-waydata\deploy\windows\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+  <onfailure action="restart" delay="10 sec"/>
+  <env name="NODE_ENV" value="production"/>
+  <env name="TZ" value="America/Sao_Paulo"/>
+  <env name="DATA_DIRECTORY" value="C:\apps\cigam-waydata\data"/>
+</service>

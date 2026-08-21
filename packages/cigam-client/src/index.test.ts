@@ -1,0 +1,93 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CigamClient } from "./index";
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("CigamClient ASMX", () => {
+  it("reads Cargas_Buscar without UN and does not treat carga id as WayData code", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ d: [{ __type: "ignored", mensagem: "ok", Paginas: "1", nome: "ROTA 1", codigoClientePartida: "1", codigoClienteChegada: "2", dataInicial: "2026-08-08T08:00:00", dataFinal: "2026-08-08T18:00:00", veiculosRoteirizacao: [{ remessas: [] }], codigoRoteirizacao: 81, flagTracking: true }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "raw-secret", authorizationScheme: "raw", asmx: { unit: "001", lookbackDays: 4 }, paths: { pendingRoutes: "/Cargas_Buscar" } });
+    const routes = await client.listPendingRoutes();
+    expect(routes).toMatchObject([{ id: "81", company: "PANEBRAS", branch: "001", routing: { nome: "ROTA 1" } }]);
+    expect(routes[0]?.externalCode).toBeUndefined();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ filtros: { Pagina: "1" } });
+    expect(JSON.parse(String(init.body)).filtros.UN).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith("https://cigam.test/API.asmx/Cargas_Buscar", expect.objectContaining({ method: "POST", headers: expect.objectContaining({ Authorization: "raw-secret" }) }));
+  });
+
+  it("loads Cargas_BuscarDetalhes, Empresas, MudaSituacao and Acompanhamento_Criar", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/Cargas_BuscarDetalhes")) {
+        return new Response(JSON.stringify({ d: [{ nome: "CARGAS", codigoClientePartida: "002628", codigoClienteChegada: "002628", dataInicial: "2026-08-08T08:00:00", dataFinal: "2026-08-08T18:00:00", codigoRoteirizacao: 36858, flagTracking: true, veiculosRoteirizacao: [{ placa: "JIU9241", remessas: [{ numeroRemessa: "36858", codigoCliente: "001277", nfe: 434673, cnpjEmissor: "11652819000150", itensRemessa: [{ codigo: "040010001", descricao: "PAO FRANCES CONG.", volumeUnitario: 0, pesoUnitario: 1, valorUnitario: 1, quantidade: 1 }] }] }] }] }), { status: 200 });
+      }
+      if (String(url).endsWith("/Empresas")) {
+        return new Response(JSON.stringify({ d: [{ cd_empresa: "001277", razao_social: "Padaria Centro Ltda", endereco: "Rua A", numero: "10", bairro: "Centro", cep: "89010000", municipio: "Blumenau", uf: "SC", classificacaoParceiro: "A" }] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ d: [{ mensagem: "ok" }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "raw-secret", authorizationScheme: "raw", asmx: { unit: "001" } });
+    const route = await client.getRoute("36858");
+    expect(route.invoices[0]).toMatchObject({ number: "434673", companyCode: "001277" });
+    await expect(client.getCompany({ code: "001277" })).resolves.toMatchObject({ codigo: "001277", nome: "Padaria Centro Ltda" });
+    await client.updateIntegrationStatus("36858", { status: "INTEGRATED" });
+    await client.recordInvoiceFollowUp({ invoiceId: "434673", result: { routeCode: 1, orderCode: "36858", invoiceId: "434673", status: "ENTREGUE", companyCode: "001277" }, receipt: { filename: "canhoto.png", contentType: "image/png", contentBase64: "abc" }, idempotencyKey: "k1" });
+    await client.recordInvoiceFollowUp({ invoiceId: "434673", result: { routeCode: 7001, orderCode: "36858", invoiceId: "434673", status: "INTEGRATED", companyCode: "001277" }, idempotencyKey: "ext-1", titleCode: "INT", history: "WAYDATA codigoRoteirizacao=7001 carga=36858" });
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+    expect(bodies.some((body) => body.Situacao?.situacao === "F" && body.Situacao?.carga === "36858")).toBe(true);
+    expect(bodies.some((body) => body.acompanhamento?.Codigo_titulo === "CAN" && String(body.acompanhamento?.Anexos).startsWith("data:image/png;base64,"))).toBe(true);
+    expect(bodies.some((body) => body.acompanhamento?.Codigo_titulo === "INT" && String(body.acompanhamento?.Historico).includes("codigoRoteirizacao=7001"))).toBe(true);
+  });
+
+  it("finds Empresas by code when cd_empresa filter is ignored", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      const pagina = String(body.filtros?.pagina ?? "1");
+      const byCode = body.filtros?.cd_empresa;
+      if (byCode) {
+        return new Response(JSON.stringify({
+          d: [
+            { qtdpaginas: "2", mensagem: "Página 1 / Linha 1", cd_empresa: "", razao_social: "", bairro: "X", cep: "70000000", municipio: "BRASILIA", uf: "DF" },
+            { qtdpaginas: "2", mensagem: "Página 1 / Linha 2", cd_empresa: "000026", razao_social: "Outra Empresa", endereco: "Rua B", numero: "1", bairro: "Centro", cep: "70000001", municipio: "BRASILIA", uf: "DF" },
+          ],
+        }), { status: 200 });
+      }
+      if (pagina === "1") {
+        return new Response(JSON.stringify({
+          d: [
+            { qtdpaginas: "2", mensagem: "Página 1 / Linha 1", cd_empresa: "", razao_social: "", bairro: "X", cep: "70000000", municipio: "BRASILIA", uf: "DF" },
+            { qtdpaginas: "2", mensagem: "Página 1 / Linha 2", cd_empresa: "000026", razao_social: "Outra Empresa", endereco: "Rua B", numero: "1", bairro: "Centro", cep: "70000001", municipio: "BRASILIA", uf: "DF" },
+          ],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        d: [{
+          qtdpaginas: "2",
+          mensagem: "Página 2 / Linha 1",
+          cd_empresa: "002628",
+          razao_social: "DONA DE CASA S/A",
+          endereco: "QS 1",
+          numero: "100",
+          bairro: "Sudoeste",
+          cep: "71215100",
+          municipio: "BRASILIA",
+          uf: "DF",
+          classificacaoParceiro: "A",
+        }],
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "raw-secret", authorizationScheme: "raw", asmx: { unit: "001" } });
+    await expect(client.getCompany({ code: "002628" })).resolves.toMatchObject({
+      codigo: "002628",
+      nome: "DONA DE CASA S/A",
+      endereco: expect.objectContaining({ cep: "71215100", municipio: "BRASILIA", uf: "DF" }),
+    });
+    await expect(client.getCompany({ code: "002628" })).resolves.toMatchObject({ codigo: "002628" });
+    const empresaCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith("/Empresas"));
+    expect(empresaCalls.length).toBeGreaterThanOrEqual(3);
+    expect(empresaCalls.length).toBeLessThan(6);
+  });
+});

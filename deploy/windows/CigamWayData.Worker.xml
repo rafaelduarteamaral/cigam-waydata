@@ -1,0 +1,18 @@
+<service>
+  <id>cigam-waydata-worker</id>
+  <name>CIGAM WayData Worker</name>
+  <description>Worker de sincronização CIGAM × WayData. Não hospedar no IIS: o recycle do application pool interrompe o ciclo.</description>
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>"C:\apps\cigam-waydata\apps\worker\node_modules\tsx\dist\cli.mjs" src/main.ts</arguments>
+  <workingdirectory>C:\apps\cigam-waydata\apps\worker</workingdirectory>
+  <logpath>C:\apps\cigam-waydata\deploy\windows\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+  <onfailure action="restart" delay="15 sec"/>
+  <stoptimeout>20 sec</stoptimeout>
+  <env name="NODE_ENV" value="production"/>
+  <env name="TZ" value="America/Sao_Paulo"/>
+  <env name="ENV_FILE" value="C:\apps\cigam-waydata\.env"/>
+</service>

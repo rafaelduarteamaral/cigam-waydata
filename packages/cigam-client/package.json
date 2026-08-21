@@ -1,0 +1,10 @@
+{
+  "name": "@cigam-waydata/cigam-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": { "build": "tsc --noEmit", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@cigam-waydata/http-client": "workspace:*", "@cigam-waydata/shared": "workspace:*", "zod": "latest" },
+  "devDependencies": { "typescript": "^5.9.3" }
+}
