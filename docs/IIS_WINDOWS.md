@@ -1,177 +1,186 @@
 # Produção no IIS (Windows)
 
-A aplicação tem **dois processos**. O IIS só publica o monitor. O worker não pode viver no application pool: recycle, idle timeout e limite de CPU/memória interrompem o ciclo de sincronização.
+Guia do que funcionou no servidor da Panebras (`CIGAM-PANEBRAS`). O IIS **não hospeda** o Node. Ele só publica o monitor já em execução.
 
-| Processo | Onde roda | Porta |
+## Arquitetura
+
+| Peça | Onde | Porta / URL |
 |---|---|---|
-| Monitor Next.js (`next start`) | Serviço Windows, só em localhost | `127.0.0.1:3000` |
-| Worker (`tsx src/main.ts`) | Serviço Windows | nenhuma |
-| IIS | Reverse proxy + HTTPS | `80` / `443` |
+| Monitor Next.js | Serviço Windows `cigam-waydata-monitor` | só `127.0.0.1:3000` |
+| Worker | Serviço Windows `cigam-waydata-worker` | nenhuma |
+| IIS (`CGPortaisPanebras`) | reverse proxy HTTPS | `https://panebrasportais.cigam.cloud/WayData/monitor` |
 
-Caminho sugerido no servidor: `C:\apps\cigam-waydata`. Dados persistentes: `C:\apps\cigam-waydata\data` (ou outro disco, desde que **o mesmo** `DATA_DIRECTORY` no monitor e no worker).
+Não crie um site IIS novo. Não altere Bindings do portal CIGAM. O monitor entra como **aplicativo** no site que já existe.
 
-## 1. Pré-requisitos no Windows
+```
+Browser  →  IIS :443  (CGPortaisPanebras /WayData/monitor)
+                ↓  URL Rewrite + ARR
+         Node 127.0.0.1:3000/WayData/monitor
+```
+
+## Caminhos no servidor Panebras
+
+```
+Instalação:  C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata
+Dados:       C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata\data
+.env:        C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata\.env
+Proxy IIS:   C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata\deploy\iis
+URL pública: https://panebrasportais.cigam.cloud/WayData/monitor
+```
+
+O physical path do aplicativo IIS é **somente** `deploy\iis` (o `web.config`). Não aponte o site para a raiz do repositório, para `data\` nem para `apps\monitor`.
+
+## 1. Pré-requisitos
 
 - Windows Server com IIS
-- [Node.js 22 LTS](https://nodejs.org/) (64-bit). Node 23 também serve.
+- Node.js 22 LTS (64-bit)
 - Corepack / pnpm 11.9.0
-- [URL Rewrite](https://www.iis.net/downloads/microsoft/url-rewrite)
-- [Application Request Routing (ARR)](https://www.iis.net/downloads/microsoft/application-request-routing)
-- [WinSW](https://github.com/winsw/winsw/releases): prefira **`WinSW-x64.exe`** (não precisa de .NET). Se usar `WinSW.NET8.exe`, instale o **.NET 8 Runtime**, não o SDK: https://dotnet.microsoft.com/download/dotnet/8.0
+- [URL Rewrite](https://www.iis.net/downloads/microsoft/url-rewrite) — já costuma estar no servidor
+- **[Application Request Routing 3.0 x64](https://www.microsoft.com/en-us/download/details.aspx?id=47333)** — obrigatório
+- [WinSW](https://github.com/winsw/winsw/releases): prefira `WinSW-x64.exe` (não precisa de .NET). Se usar `WinSW.NET8.exe`, instale o **.NET 8 Runtime**, não o SDK
 
-O aviso `Download a .NET SDK` / `sdk-not-found` aparece quando o `WinSW.NET8.exe` roda sem o Runtime 8. Não é erro do Node nem do IIS.
+Sem o ARR o PowerShell mostra:
 
-Caminho customizado (ex.: pasta do IIS):
+```text
+O objeto de configuração de destino 'system.webServer/proxy' não foi encontrado
+```
+
+URL Rewrite sozinho **não** encaminha para a porta 3000. Instale o MSI `requestRouter_amd64.msi`. Se pedir dependência, instale antes o [Web Farm Framework 1.1 x64](https://download.microsoft.com/download/5/7/0/57065640-4665-4980-a2f1-4d5940b577b0/webfarm_v1.1_amd64_en_us.msi). Depois `iisreset`.
+
+O aviso `Download a .NET SDK` no WinSW.NET8 **não** é erro da aplicação.
+
+## 2. Código e `.env`
+
+Repositório: https://github.com/rafaelduarteamaral/cigam-waydata
+
+O `.env` fica na **raiz do código**. Não versionar. Não enviar token por WhatsApp. Modelo: `deploy/windows/env.iis.example`.
+
+Obrigatório no Windows:
+
+```env
+NODE_ENV=production
+TZ=America/Sao_Paulo
+DATA_DIRECTORY=C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata\data
+SYNC_MODE=read_only
+NEXT_PUBLIC_BASE_PATH=/WayData/monitor
+```
+
+`DATA_DIRECTORY` tem que terminar em `\data`. Se apontar só para a raiz do projeto, o worker grava `runtime\worker-health.json` num lugar e o monitor lê outro: o health fica `{"status":"unknown","worker":null}`.
+
+```powershell
+$root = "C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata"
+New-Item -ItemType Directory -Force -Path "$root\data\logs","$root\data\runtime","$root\data\reprocess","$root\deploy\windows\logs" | Out-Null
+```
+
+## 3. Build e serviços Windows
+
+```powershell
+cd C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata
+corepack enable
+corepack prepare pnpm@11.9.0 --activate
+pnpm install
+$env:NEXT_PUBLIC_BASE_PATH="/WayData/monitor"
+pnpm --filter @cigam-waydata/monitor build
+```
+
+O worker sobe pelo `tsx`; não precisa de `next build` nele.
+
+Serviços (WinSW em `deploy\windows`):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\deploy\windows\install-services.ps1 `
   -InstallRoot C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata
 ```
 
-O script agora acha sozinho o `deploy\windows\WinSW.exe`. Se os serviços já existirem, ele só atualiza o XML e reinicia.
+O script acha o `WinSW.exe` sozinho. Se o serviço já existir, ele só atualiza o XML e reinicia. “O serviço especificado já existe” é normal.
 
-No PowerShell **como Administrador**:
-
-```powershell
-corepack enable
-corepack prepare pnpm@11.9.0 --activate
-node -v
-pnpm -v
-```
-
-No IIS Manager: **ARR** → Server Proxy Settings → marque **Enable proxy**. Sem isso o `web.config` de rewrite não funciona.
-
-Se o `pnpm install` falhar por symlink, ative o Developer Mode do Windows ou rode:
+Health **depois** do `basePath` (o `/api/health` na raiz passa a 404):
 
 ```powershell
-pnpm config set node-linker hoisted
+curl.exe http://127.0.0.1:3000/WayData/monitor/api/health
 ```
 
-## 2. Copiar o código e o `.env`
+Tem que vir JSON com `worker` preenchido, não `null`.
 
-1. Copie o repositório para `C:\apps\cigam-waydata`.
-2. Copie `deploy\windows\env.iis.example` para `C:\apps\cigam-waydata\.env` e preencha `CIGAM_TOKEN` e `WAYDATA_TOKEN` **no servidor**. Não envie o `.env` com token por WhatsApp.
+## 4. Publicar no IIS que já existe
 
-```env
-NODE_ENV=production
-TZ=America/Sao_Paulo
-DATA_DIRECTORY=C:\apps\cigam-waydata\data
-SYNC_MODE=read_only
-```
+Não clique em **URL Rewrite**, **Redirecionamento HTTP** nem **Bindings** no site `CGPortaisPanebras` / pasta `/WayData`. Isso altera o portal CIGAM.
 
-Em produção da WayData, `WAYDATA_BASE_URL` deve apontar para `https://restrito.waydatasolution.com.br/...` só depois do aceite. Até lá deixe `SYNC_MODE=read_only`.
+1. Instale o ARR e, no servidor **CIGAM-PANEBRAS** (topo da árvore, não no site): **Application Request Routing Cache** → **Server Proxy Settings** → **Enable proxy** → Apply.
+2. Physical path do aplicativo: `...\cigam-waydata\deploy\iis`.
+3. Alias: `monitor` debaixo de `WayData` → URL `/WayData/monitor`.
+4. App pool: **No Managed Code**.
 
-3. Crie as pastas de dados:
+Tudo isso o script faz:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path C:\apps\cigam-waydata\data\logs, C:\apps\cigam-waydata\data\runtime, C:\apps\cigam-waydata\data\reprocess, C:\apps\cigam-waydata\deploy\windows\logs
-```
-
-## 3. Build de produção
-
-```powershell
-cd C:\apps\cigam-waydata
-pnpm install
-pnpm --filter @cigam-waydata/monitor build
-```
-
-O worker sobe pelo `tsx` a partir do TypeScript; não precisa de `next build` nele.
-
-Teste local **antes** do IIS, em dois `cmd`:
-
-```bat
-C:\apps\cigam-waydata\deploy\windows\start-monitor.cmd
-C:\apps\cigam-waydata\deploy\windows\start-worker.cmd
-```
-
-Abra `http://127.0.0.1:3000/api/health`. Deve devolver JSON com `worker`. Pare os dois `cmd` (Ctrl+C) antes de instalar os serviços.
-
-## 4. Serviços Windows (monitor + worker)
-
-Os XML de exemplo estão em `deploy/windows/`. O script reescreve os caminhos:
-
-```powershell
-cd C:\apps\cigam-waydata
-powershell -ExecutionPolicy Bypass -File .\deploy\windows\install-services.ps1 -InstallRoot C:\apps\cigam-waydata
-```
-
-Baixe o WinSW, copie como `deploy\windows\WinSW.exe` e instale:
-
-```powershell
-$d = "C:\apps\cigam-waydata\deploy\windows"
-Copy-Item $d\WinSW.exe $d\cigam-monitor.exe
-Copy-Item $d\WinSW.exe $d\cigam-worker.exe
-Copy-Item $d\CigamWayData.Monitor.xml $d\cigam-monitor.xml
-Copy-Item $d\CigamWayData.Worker.xml $d\cigam-worker.xml
-& $d\cigam-monitor.exe install
-& $d\cigam-worker.exe install
-Start-Service cigam-waydata-monitor
-Start-Service cigam-waydata-worker
-Get-Service cigam-waydata-*
-```
-
-Confirme de novo `http://127.0.0.1:3000/api/health`.
-
-Comandos úteis:
-
-```powershell
-Restart-Service cigam-waydata-monitor, cigam-waydata-worker
-Stop-Service cigam-waydata-worker          # para a escrita/leitura imediatamente
-Get-Content C:\apps\cigam-waydata\deploy\windows\logs\*.log -Tail 80
-```
-
-Rollback: no `.env` deixe `SYNC_MODE=read_only` (ou `disabled`) e `Restart-Service cigam-waydata-worker`.
-
-## 5. Site IIS (HTTPS na frente)
-
-Não crie um site novo se o portal já existir. No Panebras o monitor entra no **CGPortaisPanebras**, em `/WayData/monitor`.
-
-1. No servidor IIS: **Application Request Routing Cache** → Server Proxy Settings → **Enable proxy**.
-2. Em `CGPortaisPanebras` → `WayData` → botão direito → **Add Application**:
-   - Alias: `monitor`
-   - Physical path: `{InstallRoot}\deploy\iis` (só o `web.config`; **não** aponte para a raiz do código nem para `data\`)
-   - App pool: **No Managed Code**, Integrated
-3. Não altere Bindings nem o caminho físico do site `CGPortaisPanebras`.
-4. O Next precisa de `basePath` nesse subcaminho. Build **com** a variável:
-
-```powershell
+cd C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata
 $env:NEXT_PUBLIC_BASE_PATH="/WayData/monitor"
 pnpm --filter @cigam-waydata/monitor build
-Restart-Service cigam-waydata-monitor
+powershell -ExecutionPolicy Bypass -File .\deploy\windows\publish-iis-monitor.ps1
 ```
 
-URL pública: `https://panebrasportais.cigam.cloud/WayData/monitor`
+O `web.config` reescreve para `http://127.0.0.1:3000/WayData/monitor/...`. A porta 3000 não deve ficar aberta na internet.
 
-O rewrite manda esse prefixo para `http://127.0.0.1:3000/WayData/monitor`. O Node não deve ficar exposto na placa de rede pública.
+URL pública:
 
-Restrinja o monitor à VPN/rede interna. Se quiser chave extra, defina `MONITOR_API_KEY` no `.env` e envie `x-monitor-key` no proxy corporativo.
+**https://panebrasportais.cigam.cloud/WayData/monitor**
 
-## 6. Firewall e permissões NTFS
+`/WayData` e `/WayData/cigam-waydata` continuam 403 — não são o monitor.
+
+## 5. Firewall e NTFS
 
 - Entrada pública: só 80/443 no IIS.
-- `127.0.0.1:3000` não precisa de regra de firewall de entrada.
-- A conta do serviço Windows (Local System, ou uma conta dedicada) precisa de **leitura** no código e **escrita** em `DATA_DIRECTORY` e `deploy\windows\logs`.
+- `127.0.0.1:3000` não precisa de regra de entrada.
+- A conta do serviço (Local System ou dedicada) precisa de leitura no código e escrita em `DATA_DIRECTORY` e `deploy\windows\logs`.
 - Saída HTTPS para CIGAM (`*.cigam.cloud`) e WayData (`wayds.net` / `restrito.waydatasolution.com.br`).
 
-## 7. Checklist de go-live
-
-1. `pnpm --filter @cigam-waydata/monitor build` ok
-2. `http://127.0.0.1:3000/api/health` ok
-3. Site IIS responde o monitor
-4. Worker `RUNNING` em `Get-Service`
-5. `SYNC_MODE=read_only` no primeiro dia
-6. SMTP (`SMTP_HOST`, `ALERT_RECIPIENTS`) se houver alerta
-7. Só então `SYNC_MODE=write` e `Restart-Service cigam-waydata-worker`
-
-## 8. Atualizar a aplicação
+## 6. Atualizar a aplicação
 
 ```powershell
-Stop-Service cigam-waydata-monitor, cigam-waydata-worker
-cd C:\apps\cigam-waydata
+cd C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata
 git pull
+$env:NEXT_PUBLIC_BASE_PATH="/WayData/monitor"
 pnpm install
 pnpm --filter @cigam-waydata/monitor build
-Start-Service cigam-waydata-monitor, cigam-waydata-worker
+Restart-Service cigam-waydata-monitor, cigam-waydata-worker
 ```
 
-Não recicle o IIS para atualizar o worker. O `data\` permanece; não apague `route-map.json`.
+`git pull` sozinho **não** atualiza o front. Sempre rebuild do monitor. Não apague `data\runtime\route-map.json`. Não recicle o IIS para atualizar o worker.
+
+## 7. Comandos úteis
+
+```powershell
+Get-Service cigam-waydata-*
+Restart-Service cigam-waydata-monitor, cigam-waydata-worker
+Stop-Service cigam-waydata-worker
+Get-Content C:\inetpub\wwwroot\CGPortaisPanebras\WayData\cigam-waydata\deploy\windows\logs\*.log -Tail 80
+curl.exe http://127.0.0.1:3000/WayData/monitor/api/health
+```
+
+Rollback de escrita: no `.env`, `SYNC_MODE=read_only` e `Restart-Service cigam-waydata-worker`.
+
+## 8. Checklist
+
+1. ARR instalado e **Enable proxy** = True
+2. `DATA_DIRECTORY=...\cigam-waydata\data` (igual no `.env` e no XML do monitor)
+3. `worker-health.json` em `data\runtime\` (não na raiz do repo)
+4. `pnpm --filter @cigam-waydata/monitor build` com `NEXT_PUBLIC_BASE_PATH=/WayData/monitor`
+5. `curl.exe http://127.0.0.1:3000/WayData/monitor/api/health` com `worker` ≠ null
+6. Aplicativo IIS `/WayData/monitor` aponta para `deploy\iis`
+7. Browser: `https://panebrasportais.cigam.cloud/WayData/monitor`
+8. `SYNC_MODE=read_only` no primeiro dia; `write` só depois do aceite
+
+## 9. Problemas que já apareceram
+
+| Sintoma | Causa | O que fazer |
+|---|---|---|
+| `system.webServer/proxy` não encontrado | ARR ausente | Instalar ARR 3.0 x64 e `iisreset` |
+| Health `worker: null` | `DATA_DIRECTORY` sem `\data` | Ajustar `.env`, reiniciar os dois serviços |
+| `Download a .NET SDK` | WinSW.NET8 sem Runtime 8 | Usar `WinSW-x64.exe` |
+| “O serviço especificado já existe” | WinSW tentou instalar de novo | Ignorar; serviço já está lá |
+| `Invoke-WebRequest` quebra no PowerShell antigo | Falta `-UseBasicParsing` | Usar `curl.exe` |
+| 403 em `/WayData` ou na pasta do código | Pasta sem `index.html` | Abrir `/WayData/monitor` |
+| Front local ok, URL pública em branco | Proxy desligado ou app IIS errado | ARR Enable proxy + `publish-iis-monitor.ps1` |
+| `/api/health` na porta 3000 dá 404 | `basePath` ativo | Usar `/WayData/monitor/api/health` |
+| CSS/`/api` caem no portal CIGAM | Monitor buildado sem `basePath` | Rebuild com `NEXT_PUBLIC_BASE_PATH` |

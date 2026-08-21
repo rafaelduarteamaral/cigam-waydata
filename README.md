@@ -115,7 +115,7 @@ O monitor aceita `MONITOR_API_KEY` quando a infraestrutura injeta `x-monitor-key
 
 ## Produção no IIS (Windows)
 
-O IIS faz reverse proxy para o monitor em `127.0.0.1:3000`. O worker sobe como **serviço Windows**, não como site IIS. Passo a passo: [docs/IIS_WINDOWS.md](docs/IIS_WINDOWS.md).
+O IIS faz reverse proxy para o monitor em `127.0.0.1:3000`. O worker sobe como **serviço Windows**, não como site IIS. No portal da Panebras a URL pública é `https://panebrasportais.cigam.cloud/WayData/monitor`. Passo a passo: [docs/IIS_WINDOWS.md](docs/IIS_WINDOWS.md).
 
 ```powershell
 pnpm install
