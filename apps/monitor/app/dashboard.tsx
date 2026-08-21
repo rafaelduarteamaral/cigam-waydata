@@ -68,7 +68,7 @@ export function Dashboard({ initialEvents, initialHealth, today }: DashboardProp
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visibleEvents = filtered.slice((page - 1) * pageSize, page * pageSize);
   const isReadOnly = initialHealth?.syncMode === "READ_ONLY";
-  const apiBase = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  const apiBase = process.env.NEXT_PUBLIC_BASE_PATH ?? "/WayData/monitor";
   useEffect(() => setPage(1), [dateFrom, dateTo, status, entity, operation, search]);
 
   function refresh() {
