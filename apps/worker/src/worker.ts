@@ -92,6 +92,7 @@ export class IntegrationWorker {
   private async processRoute(input: CigamRoute): Promise<void> {
     const correlationId = `ROUTE:${input.company}:${input.id}`;
     const mapKey = `${input.company}:${input.id}`;
+    let requestPayload: unknown;
     try {
       const route = await this.resolveRoute(input);
       if (!route) return;
@@ -114,6 +115,7 @@ export class IntegrationWorker {
         nome: uniqueRouteName(route.id, (route.routing as { dataInicial?: unknown } | undefined)?.dataInicial),
         codigoRoteirizacao: externalCode,
       });
+      requestPayload = routing;
       await this.ensureClients(route, routing);
       const response = externalCode ? await this.dependencies.wayData!.updateRouting(routing) : await this.dependencies.wayData!.createRouting(routing);
       const savedCode = Number(response.CodigoRoteirizacao ?? externalCode);
@@ -148,7 +150,19 @@ export class IntegrationWorker {
       if (!alreadyIntegrated && this.shouldMarkCigamError(error)) {
         await this.dependencies.cigam!.updateIntegrationStatus(input.id, { status: "ERROR", error: classified.message, attemptedAt: new Date().toISOString() }).catch(() => undefined);
       }
-      await this.log({ correlationId, status: "ERROR", entity: "ROUTE", message: classified.message, reference: this.reference(input), ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
+      const routePayload = requestPayload as { codigoRoteirizacao?: unknown } | undefined;
+      const isUpdate = Number(routePayload?.codigoRoteirizacao) > 0;
+      await this.log({
+        correlationId,
+        status: "ERROR",
+        entity: "ROUTE",
+        operation: requestPayload ? (isUpdate ? "UPDATE" : "CREATE") : "READ",
+        message: classified.message,
+        reference: this.reference(input),
+        ...(requestPayload ? { request: { method: isUpdate ? "PATCH" : "PUT", endpoint: "/Roteirizacao/integracao" }, requestPayload } : {}),
+        ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}),
+        errorCode: classified.kind,
+      });
       if (classified.retryable && !alreadyIntegrated) await this.enqueueRetry(input.id, correlationId);
     }
   }
@@ -324,7 +338,7 @@ export class IntegrationWorker {
     await Promise.all(Array.from({ length: count }, async () => { for (;;) { const item = queue.shift(); if (!item) return; await action(item); } }));
   }
 
-  private async log(input: { correlationId: string; status: LogEvent["status"]; message: string; durationMs?: number; reference?: LogEvent["reference"]; entity?: LogEvent["entity"]; operation?: LogEvent["operation"]; direction?: LogEvent["direction"]; externalCode?: string | number; httpStatus?: number; errorCode?: string }): Promise<void> {
+  private async log(input: { correlationId: string; status: LogEvent["status"]; message: string; durationMs?: number; reference?: LogEvent["reference"]; entity?: LogEvent["entity"]; operation?: LogEvent["operation"]; direction?: LogEvent["direction"]; externalCode?: string | number; httpStatus?: number; errorCode?: string; request?: LogEvent["request"]; requestPayload?: unknown }): Promise<void> {
     await this.dependencies.store.writeLog({ id: randomUUID(), timestamp: new Date().toISOString(), direction: input.direction ?? (input.entity && input.entity !== "SYSTEM" ? "CIGAM_TO_WAYDATA" : "INTERNAL"), entity: input.entity ?? "SYSTEM", operation: input.operation ?? "SYNC", attempt: 1, reference: input.reference ?? {}, ...input, message: String(sanitizeValue(input.message)) });
     if (input.status === "ERROR" && this.dependencies.notifier) {
       await this.dependencies.notifier.send({ key: `${input.entity ?? "SYSTEM"}:${input.errorCode ?? input.message}`, subject: `[CIGAM × WayData] Falha em ${input.entity ?? "SYSTEM"}`, text: `Correlação: ${input.correlationId}\nEntidade: ${input.entity ?? "SYSTEM"}\nOperação: ${input.operation ?? "SYNC"}\nHTTP: ${input.httpStatus ?? "-"}\nMensagem: ${input.message}` }).catch(() => undefined);

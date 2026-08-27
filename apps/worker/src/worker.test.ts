@@ -71,6 +71,15 @@ describe("IntegrationWorker", () => {
     };
     await new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData400 as never }).runCycle();
     expect(await store.readReprocessRequests()).toHaveLength(0);
+    const today = new Date().toISOString().slice(0, 10);
+    await expect(store.readLogs(today, today)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        correlationId: "ROUTE:01:R1",
+        status: "ERROR",
+        request: { method: "PUT", endpoint: "/Roteirizacao/integracao" },
+        requestPayload: expect.objectContaining({ nome: "Rota teste", codigoRoteirizacao: 0 }),
+      }),
+    ]));
 
     const store500 = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-500-")));
     const wayData500 = {

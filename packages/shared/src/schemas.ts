@@ -63,6 +63,8 @@ export const logEventSchema = z.object({
   message: z.string().max(2_000),
   externalCode: z.union([z.string(), z.number()]).optional(),
   errorCode: z.string().optional(),
+  // Corpo sanitizado da tentativa que falhou. Nunca contém cabeçalhos ou tokens.
+  requestPayload: z.unknown().optional(),
 });
 
 export type LogEvent = z.infer<typeof logEventSchema>;
