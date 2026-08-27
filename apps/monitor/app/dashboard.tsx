@@ -1,7 +1,7 @@
 "use client";
 
 import type { IntegrationEntity, IntegrationStatus, LogEvent } from "@cigam-waydata/shared";
-import { Activity, AlertTriangle, ArrowUpRight, CheckCircle2, Clock3, Download, Eye, Filter, RefreshCw, RotateCcw, Search, ServerCog, Waypoints, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowUpRight, CheckCircle2, Clock3, Download, Eye, Filter, LogOut, RefreshCw, RotateCcw, Search, ServerCog, Waypoints, X } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 type DashboardProps = {
@@ -95,6 +95,10 @@ export function Dashboard({ initialEvents, initialHealth, today }: DashboardProp
     window.location.assign(`${apiBase}/api/export?from=${dateFrom}&to=${dateTo}`);
   }
 
+  function logout() {
+    void fetch(`${apiBase}/api/auth/logout`, { method: "POST" }).finally(() => window.location.assign(`${apiBase}/login`));
+  }
+
   const workerSeen = typeof initialHealth?.lastSeenAt === "string" ? formatTime(initialHealth.lastSeenAt) : "sem sinal";
   const syncMode = initialHealth?.syncMode === "READ_ONLY" ? "Somente leitura" : initialHealth?.syncMode === "WRITE" ? "Escrita ativa" : "Desativado";
 
@@ -110,6 +114,7 @@ export function Dashboard({ initialEvents, initialHealth, today }: DashboardProp
           <span className="pulse" />
           <div><strong>Worker {initialHealth ? "conectado" : "aguardando"}</strong><small>{syncMode} · último sinal: {workerSeen}</small></div>
         </div>
+        <button className="logout-button" onClick={logout} title="Sair do monitor"><LogOut size={15} />Sair</button>
       </header>
 
       <section className="hero">

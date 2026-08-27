@@ -3,10 +3,13 @@ import { JsonlStore } from "@cigam-waydata/file-logger";
 import { sanitizeValue } from "@cigam-waydata/shared";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { requireMonitorSession } from "../../auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const denied = requireMonitorSession(request);
+  if (denied) return denied;
   const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   const parsed = z.object({ from: date, to: date }).safeParse({ from: request.nextUrl.searchParams.get("from"), to: request.nextUrl.searchParams.get("to") });
   if (!parsed.success || parsed.data.from > parsed.data.to) return NextResponse.json({ error: "Período inválido" }, { status: 400 });

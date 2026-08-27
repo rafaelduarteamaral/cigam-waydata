@@ -4,7 +4,7 @@ import { CigamClient } from "./index";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("CigamClient ASMX", () => {
-  it("reads Cargas_Buscar without UN and does not treat carga id as WayData code", async () => {
+  it("reads all Cargas_Buscar pages with UN and does not treat carga id as WayData code", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ d: [{ __type: "ignored", mensagem: "ok", Paginas: "1", nome: "ROTA 1", codigoClientePartida: "1", codigoClienteChegada: "2", dataInicial: "2026-08-08T08:00:00", dataFinal: "2026-08-08T18:00:00", veiculosRoteirizacao: [{ remessas: [] }], codigoRoteirizacao: 81, flagTracking: true }] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "raw-secret", authorizationScheme: "raw", asmx: { unit: "001", lookbackDays: 4 }, paths: { pendingRoutes: "/Cargas_Buscar" } });
@@ -12,9 +12,23 @@ describe("CigamClient ASMX", () => {
     expect(routes).toMatchObject([{ id: "81", company: "PANEBRAS", branch: "001", routing: { nome: "ROTA 1" } }]);
     expect(routes[0]?.externalCode).toBeUndefined();
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toMatchObject({ filtros: { Pagina: "1" } });
-    expect(JSON.parse(String(init.body)).filtros.UN).toBeUndefined();
+    expect(JSON.parse(String(init.body))).toMatchObject({ filtros: { Pagina: "1", UN: "001" } });
     expect(fetchMock).toHaveBeenCalledWith("https://cigam.test/API.asmx/Cargas_Buscar", expect.objectContaining({ method: "POST", headers: expect.objectContaining({ Authorization: "raw-secret" }) }));
+  });
+
+  it("fails visibly when the CIGAM list exposes pages but no valid carga codes", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => new Response(JSON.stringify({ d: [{ mensagem: "Página 1", Paginas: "3", nome: "CARGAS", codigoRoteirizacao: 0 }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "raw-secret", authorizationScheme: "raw", asmx: { unit: "001", lookbackDays: 4 }, paths: { pendingRoutes: "/Cargas_Buscar" } });
+    await expect(client.listPendingRoutes()).rejects.toThrow("não retornou codigoRoteirizacao nem numeroRemessa válidos");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("discovers remessas when Cargas_Buscar uses zero as its route code", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ d: [{ mensagem: "Página 1", Paginas: "1", nome: "CARGAS", codigoRoteirizacao: 0, veiculosRoteirizacao: [{ remessas: [{ numeroRemessa: "38484" }, { numeroRemessa: "38484" }, { numeroRemessa: "38485" }] }] }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "raw-secret", authorizationScheme: "raw", asmx: { unit: "001", lookbackDays: 4 } });
+    await expect(client.listPendingRoutes()).resolves.toMatchObject([{ id: "38484" }, { id: "38485" }]);
   });
 
   it("loads Cargas_BuscarDetalhes, Empresas, MudaSituacao and Acompanhamento_Criar", async () => {
@@ -36,7 +50,7 @@ describe("CigamClient ASMX", () => {
     await client.recordInvoiceFollowUp({ invoiceId: "434673", result: { routeCode: 1, orderCode: "36858", invoiceId: "434673", status: "ENTREGUE", companyCode: "001277" }, receipt: { filename: "canhoto.png", contentType: "image/png", contentBase64: "abc" }, idempotencyKey: "k1" });
     await client.recordInvoiceFollowUp({ invoiceId: "434673", result: { routeCode: 7001, orderCode: "36858", invoiceId: "434673", status: "INTEGRATED", companyCode: "001277" }, idempotencyKey: "ext-1", titleCode: "INT", history: "WAYDATA codigoRoteirizacao=7001 carga=36858" });
     const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
-    expect(bodies.some((body) => body.Situacao?.situacao === "F" && body.Situacao?.carga === "36858")).toBe(true);
+    expect(bodies.some((body) => body.Situacao?.situacao === "F" && body.Situacao?.codigoRoteirizacao === "36858" && body.Situacao?.carga === "36858")).toBe(true);
     expect(bodies.some((body) => body.acompanhamento?.Codigo_titulo === "CAN" && String(body.acompanhamento?.Anexos).startsWith("data:image/png;base64,"))).toBe(true);
     expect(bodies.some((body) => body.acompanhamento?.Codigo_titulo === "INT" && String(body.acompanhamento?.Historico).includes("codigoRoteirizacao=7001"))).toBe(true);
   });

@@ -48,6 +48,19 @@ describe("IntegrationWorker", () => {
     expect(logs.filter((event) => event.correlationId === "DISCOVERY:01:R1")).toHaveLength(1);
   });
 
+  it("loads allowlisted routes directly in read-only mode", async () => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-read-only-allowlist-")));
+    const allowlistedRoute = { ...route, id: "38484" };
+    const cigam = { listPendingRoutes: vi.fn().mockResolvedValue([]), getRoute: vi.fn().mockResolvedValue(allowlistedRoute) };
+    await new IntegrationWorker({ store, enabled: true, writeEnabled: false, routeAllowlist: ["38484"], cigam: cigam as never }).runCycle();
+    expect(cigam.getRoute).toHaveBeenCalledWith("38484");
+    expect(cigam.listPendingRoutes).not.toHaveBeenCalled();
+    const today = new Date().toISOString().slice(0, 10);
+    await expect(store.readLogs(today, today)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ correlationId: "DISCOVERY:01:38484", status: "SUCCESS" }),
+    ]));
+  });
+
   it("does not retry HTTP 400 and enqueues reprocess for HTTP 500", async () => {
     const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-http-")));
     const cigam = { listPendingRoutes: vi.fn().mockResolvedValue([route]), updateIntegrationStatus: vi.fn().mockResolvedValue({}) };

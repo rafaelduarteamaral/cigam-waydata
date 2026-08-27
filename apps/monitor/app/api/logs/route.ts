@@ -2,10 +2,13 @@ import path from "node:path";
 import { JsonlStore } from "@cigam-waydata/file-logger";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { requireMonitorSession } from "../../auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const denied = requireMonitorSession(request);
+  if (denied) return denied;
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: process.env.TZ ?? "America/Sao_Paulo",
     year: "numeric",

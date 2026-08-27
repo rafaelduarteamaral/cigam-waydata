@@ -1,5 +1,7 @@
 import path from "node:path";
 import { JsonlStore } from "@cigam-waydata/file-logger";
+import { redirect } from "next/navigation";
+import { hasMonitorSession, isMonitorLoginEnabled } from "./auth";
 import { Dashboard } from "./dashboard";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,7 @@ function dateKey(date: Date): string {
 }
 
 export default async function Home() {
+  if (isMonitorLoginEnabled() && !await hasMonitorSession()) redirect("/login");
   const store = new JsonlStore(path.resolve(/* turbopackIgnore: true */ process.env.DATA_DIRECTORY ?? "../../data"));
   const today = dateKey(new Date());
   const events = await store.readLogs(today, today);

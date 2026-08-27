@@ -65,7 +65,9 @@ export class IntegrationWorker {
 
   private async loadRoutes(): Promise<CigamRoute[]> {
     const allowlist = this.dependencies.routeAllowlist ?? [];
-    if (allowlist.length && this.dependencies.writeEnabled !== false) {
+    // A allowlist é uma forma segura de homologar uma carga conhecida: também
+    // deve funcionar em modo somente leitura, sem depender da listagem geral.
+    if (allowlist.length) {
       const loaded: CigamRoute[] = [];
       for (const id of allowlist) {
         try {
@@ -144,7 +146,13 @@ export class IntegrationWorker {
   }
 
   private async resolveRoute(input: CigamRoute): Promise<CigamRoute | null> {
-    const hasRemessas = Array.isArray((input.routing as { veiculosRoteirizacao?: unknown[] } | undefined)?.veiculosRoteirizacao);
+    const vehicles = (input.routing as { veiculosRoteirizacao?: unknown[] } | undefined)?.veiculosRoteirizacao;
+    const hasRemessas = Array.isArray(vehicles) && vehicles.some((vehicle) => {
+      const remessas = vehicle && typeof vehicle === "object" && !Array.isArray(vehicle)
+        ? (vehicle as { remessas?: unknown }).remessas
+        : undefined;
+      return Array.isArray(remessas) && remessas.length > 0;
+    });
     if (input.clients.length && hasRemessas) return input;
     try {
       const detailed = await this.dependencies.cigam!.getRoute(input.id);

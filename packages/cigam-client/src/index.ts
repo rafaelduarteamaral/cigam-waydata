@@ -32,6 +32,7 @@ export interface CigamAsmxOptions {
   company?: string;
   lookbackDays?: number;
   page?: number;
+  maxPages?: number;
 }
 
 const restPaths: CigamPaths = {
@@ -61,6 +62,24 @@ function companyCodesEqual(left: string, right: string): boolean {
   const a = left.replace(/^0+/, "") || "0";
   const b = right.replace(/^0+/, "") || "0";
   return a === b;
+}
+
+function shipmentIdsFromRow(row: AsmxRecord): string[] {
+  const routeCode = Number(row.codigoRoteirizacao);
+  if (Number.isInteger(routeCode) && routeCode > 0) return [String(routeCode)];
+  const vehicles = Array.isArray(row.veiculosRoteirizacao) ? row.veiculosRoteirizacao : [];
+  const ids = new Set<string>();
+  for (const vehicle of vehicles) {
+    if (!vehicle || typeof vehicle !== "object" || Array.isArray(vehicle)) continue;
+    const rawShipments = (vehicle as AsmxRecord).remessas;
+    const shipments: unknown[] = Array.isArray(rawShipments) ? rawShipments : [];
+    for (const shipment of shipments) {
+      if (!shipment || typeof shipment !== "object" || Array.isArray(shipment)) continue;
+      const id = String((shipment as AsmxRecord).numeroRemessa ?? "").trim();
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
 }
 
 export class CigamClient {
@@ -132,14 +151,39 @@ export class CigamClient {
     if (this.asmx) {
       const to = new Date();
       const from = since ? new Date(since) : new Date(to.getTime() - Math.max(0, (this.asmx.lookbackDays ?? 4) - 1) * 86_400_000);
-      const raw = await this.http.request<unknown>(this.paths.pendingRoutes, {
-        method: "POST",
-        retry: true,
-        body: JSON.stringify({ filtros: { dt_inicial: toAsmxDate(from), dt_final: toAsmxDate(to), Pagina: String(this.asmx.page ?? 1) } }),
-      });
-      return unwrapAsmx(raw)
-        .filter((row) => row.codigoRoteirizacao != null || row.nome != null)
-        .map((row, index) => mapCargaRowToRoute(row, { company: this.asmx!.company ?? "PANEBRAS", branch: this.asmx!.unit, index }));
+      const firstPage = Math.max(1, this.asmx.page ?? 1);
+      const maxPages = Math.max(1, this.asmx.maxPages ?? 50);
+      let pages = firstPage;
+      const rows: AsmxRecord[] = [];
+
+      for (let page = firstPage; page <= pages && page < firstPage + maxPages; page += 1) {
+        const raw = await this.http.request<unknown>(this.paths.pendingRoutes, {
+          method: "POST",
+          retry: true,
+          body: JSON.stringify({ filtros: { dt_inicial: toAsmxDate(from), dt_final: toAsmxDate(to), UN: this.asmx.unit, Pagina: String(page) } }),
+        });
+        const pageRows = unwrapAsmx(raw);
+        if (page === firstPage) {
+          const declared = Number(pageRows[0]?.Paginas ?? pageRows[0]?.qtdpaginas ?? firstPage);
+          if (Number.isFinite(declared) && declared >= firstPage) pages = Math.min(declared, firstPage + maxPages - 1);
+        }
+        rows.push(...pageRows);
+      }
+
+      const candidates = new Map<string, AsmxRecord>();
+      for (const row of rows) {
+        for (const id of shipmentIdsFromRow(row)) {
+          // A listagem traz o resumo completo; o detalhe é sempre consultado
+          // antes de escrever, para manter uma carga/remessa por operação.
+          candidates.set(id, { ...row, codigoRoteirizacao: Number(id) || id, veiculosRoteirizacao: [] });
+        }
+      }
+      const declaredPages = Number(rows[0]?.Paginas ?? rows[0]?.qtdpaginas ?? 0);
+      if (candidates.size === 0 && Number.isFinite(declaredPages) && declaredPages > 1) {
+        throw new Error(`CIGAM informou ${declaredPages} página(s), mas Cargas_Buscar não retornou codigoRoteirizacao nem numeroRemessa válidos`);
+      }
+      return [...candidates.entries()]
+        .map(([id, row], index) => mapCargaRowToRoute({ ...row, codigoRoteirizacao: Number(id) || id }, { company: this.asmx!.company ?? "PANEBRAS", branch: this.asmx!.unit, index }));
     }
     const separator = this.paths.pendingRoutes.includes("?") ? "&" : "?";
     const query = since ? `${separator}updatedSince=${encodeURIComponent(since)}` : "";
@@ -205,6 +249,7 @@ export class CigamClient {
         method: "POST",
         body: JSON.stringify({
           Situacao: {
+            codigoRoteirizacao: String(id),
             carga: String(id),
             situacao: mapIntegrationStatusToSituacao(String(payload.status ?? "A")),
             data: toAsmxDate(now),
