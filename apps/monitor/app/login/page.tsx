@@ -8,7 +8,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const apiBase = process.env.NEXT_PUBLIC_BASE_PATH ?? "/WayData/monitor";
+  // Derive the published prefix from the current URL. This also works when
+  // the monitor is deployed below an IIS virtual application.
+  const apiBase = typeof window === "undefined"
+    ? "/WayData/monitor"
+    : window.location.pathname.replace(/\/login\/?$/, "") || "/WayData/monitor";
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
