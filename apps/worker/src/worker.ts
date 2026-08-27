@@ -178,8 +178,14 @@ export class IntegrationWorker {
     const byCode = new Map(route.clients.map((client) => [client.code, client]));
     for (const code of routingClientCodes(routing)) {
       const current = byCode.get(code);
-      const payload = await this.resolveClient(code, current?.payload ?? {});
       const existing = await this.dependencies.wayData!.getClient(code);
+      // A consulta Empresas no CIGAM é somente enriquecimento. Não a faça para
+      // um cliente que já está íntegro na WayData: além de ser desnecessária,
+      // algumas instalações do ERP respondem a Empresas lentamente e travam
+      // toda a sincronização de uma rota.
+      if (existing && !current?.changed) continue;
+
+      const payload = await this.resolveClient(code, current?.payload ?? {});
       if (!existing) {
         if (!payload.endereco && !payload.coordenada) {
           throw new Error(`Cliente ${code} sem endereço ou coordenada no CIGAM; a WayData recusa o cadastro`);
