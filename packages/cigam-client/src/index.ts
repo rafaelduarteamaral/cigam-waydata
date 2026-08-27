@@ -85,6 +85,23 @@ function shipmentIdsFromRow(row: AsmxRecord): string[] {
   return [...ids];
 }
 
+function rowForShipment(row: AsmxRecord, shipmentId: string): AsmxRecord {
+  const sourceVehicles = Array.isArray(row.veiculosRoteirizacao)
+    ? row.veiculosRoteirizacao
+    : Array.isArray(row.veiculoRoteirizacao)
+      ? row.veiculoRoteirizacao
+      : [];
+  const vehicles = sourceVehicles.flatMap((vehicle) => {
+    if (!vehicle || typeof vehicle !== "object" || Array.isArray(vehicle)) return [];
+    const record = vehicle as AsmxRecord;
+    const remessas = Array.isArray(record.remessas)
+      ? record.remessas.filter((shipment) => shipment && typeof shipment === "object" && !Array.isArray(shipment) && String((shipment as AsmxRecord).numeroRemessa ?? "").trim() === shipmentId)
+      : [];
+    return remessas.length ? [{ ...record, remessas }] : [];
+  });
+  return { ...row, codigoRoteirizacao: Number(shipmentId) || shipmentId, veiculosRoteirizacao: vehicles };
+}
+
 export class CigamClient {
   private readonly http: HttpClient;
   private readonly paths: CigamPaths;
@@ -173,12 +190,17 @@ export class CigamClient {
         rows.push(...pageRows);
       }
 
-      const candidates = new Map<string, AsmxRecord>();
+      const candidates = new Map<string, { row: AsmxRecord; useSummary: boolean }>();
       for (const row of rows) {
+        const hasCigamRoutingCode = Number.isInteger(Number(row.codigoRoteirizacao)) && Number(row.codigoRoteirizacao) > 0;
         for (const id of shipmentIdsFromRow(row)) {
-          // A listagem traz o resumo completo; o detalhe é sempre consultado
-          // antes de escrever, para manter uma carga/remessa por operação.
-          candidates.set(id, { ...row, codigoRoteirizacao: Number(id) || id, veiculosRoteirizacao: [] });
+          // Quando o CIGAM ainda não tem código de roteirização, a listagem já
+          // traz os dados da remessa. Processamos essa remessa diretamente, em
+          // vez de consultar Cargas_BuscarDetalhes com um código inexistente.
+          candidates.set(id, {
+            row: hasCigamRoutingCode ? { ...row, codigoRoteirizacao: Number(id) || id } : rowForShipment(row, id),
+            useSummary: !hasCigamRoutingCode,
+          });
         }
       }
       const declaredPages = Number(rows[0]?.Paginas ?? rows[0]?.qtdpaginas ?? 0);
@@ -186,7 +208,7 @@ export class CigamClient {
         throw new Error(`CIGAM informou ${declaredPages} página(s), mas Cargas_Buscar não retornou codigoRoteirizacao nem numeroRemessa válidos`);
       }
       return [...candidates.entries()]
-        .map(([id, row], index) => mapCargaRowToRoute({ ...row, codigoRoteirizacao: Number(id) || id }, { company: this.asmx!.company ?? "PANEBRAS", branch: this.asmx!.unit, index }));
+        .map(([id, candidate], index) => mapCargaRowToRoute(candidate.row, { company: this.asmx!.company ?? "PANEBRAS", branch: this.asmx!.unit, index, includeRouting: candidate.useSummary }));
     }
     const separator = this.paths.pendingRoutes.includes("?") ? "&" : "?";
     const query = since ? `${separator}updatedSince=${encodeURIComponent(since)}` : "";

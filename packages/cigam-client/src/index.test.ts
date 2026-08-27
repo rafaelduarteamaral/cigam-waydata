@@ -25,10 +25,13 @@ describe("CigamClient ASMX", () => {
   });
 
   it("discovers remessas when Cargas_Buscar uses zero as its route code", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ d: [{ mensagem: "Página 1", Paginas: "1", nome: "CARGAS", codigoRoteirizacao: 0, veiculosRoteirizacao: [{ remessas: [{ numeroRemessa: "38484" }, { numeroRemessa: "38484" }, { numeroRemessa: "38485" }] }] }] }), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ d: [{ mensagem: "Página 1", Paginas: "1", nome: "CARGAS", codigoClientePartida: "001", codigoClienteChegada: "001", dataInicial: "2026-08-08T08:00:00", dataFinal: "2026-08-08T18:00:00", codigoRoteirizacao: 0, veiculosRoteirizacao: [{ placa: "ABC1D23", remessas: [{ numeroRemessa: "38484", codigoCliente: "001", cnpjEmissor: "11652819000150", itensRemessa: [{ codigo: "I1", descricao: "Item", quantidade: 1 }] }, { numeroRemessa: "38485", codigoCliente: "001", cnpjEmissor: "11652819000150", itensRemessa: [{ codigo: "I2", descricao: "Item", quantidade: 1 }] }] }] }] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "raw-secret", authorizationScheme: "raw", asmx: { unit: "001", lookbackDays: 4 } });
-    await expect(client.listPendingRoutes()).resolves.toMatchObject([{ id: "38484" }, { id: "38485" }]);
+    await expect(client.listPendingRoutes()).resolves.toMatchObject([
+      { id: "38484", routing: { veiculosRoteirizacao: [{ remessas: [{ numeroRemessa: "38484" }] }] } },
+      { id: "38485", routing: { veiculosRoteirizacao: [{ remessas: [{ numeroRemessa: "38485" }] }] } },
+    ]);
   });
 
   it("loads Cargas_BuscarDetalhes, Empresas, MudaSituacao and Acompanhamento_Criar", async () => {
