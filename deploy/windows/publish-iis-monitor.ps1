@@ -8,6 +8,31 @@ param(
 $ErrorActionPreference = "Continue"
 $physical = Join-Path $InstallRoot "deploy\iis"
 $monitorXml = Join-Path $InstallRoot "deploy\windows\cigam-monitor.xml"
+$rootEnv = Join-Path $InstallRoot ".env"
+$monitorEnv = Join-Path $InstallRoot "apps\monitor\.env.production.local"
+
+function Sync-MonitorLoginEnvironment {
+  if (-not (Test-Path $rootEnv)) {
+    Write-Host "Arquivo .env nao encontrado; configuracao de login nao foi sincronizada."
+    return
+  }
+
+  $wanted = @("MONITOR_USERNAME", "MONITOR_PASSWORD", "MONITOR_AUTH_SECRET")
+  $values = @{}
+  foreach ($line in Get-Content $rootEnv) {
+    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+      if ($wanted -contains $Matches[1]) { $values[$Matches[1]] = $Matches[2] }
+    }
+  }
+
+  if ($wanted | Where-Object { -not $values.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($values[$_]) }) {
+    Write-Host "Login nao ativado: defina MONITOR_USERNAME, MONITOR_PASSWORD e MONITOR_AUTH_SECRET no .env."
+    return
+  }
+
+  $wanted | ForEach-Object { "$_=$($values[$_])" } | Set-Content -Path $monitorEnv -Encoding utf8
+  Write-Host "Configuracao de login sincronizada para apps\monitor\.env.production.local"
+}
 
 Write-Host "=== 1. ARR / PROXY ==="
 $arr = Get-WebGlobalModule -Name "ApplicationRequestRouting" -ErrorAction SilentlyContinue
@@ -41,6 +66,7 @@ try {
 Get-WebApplication -Site $SiteName | Format-Table Path, PhysicalPath
 
 Write-Host "=== 3. SERVICO MONITOR ==="
+Sync-MonitorLoginEnvironment
 if (Test-Path $monitorXml) {
   if (-not (Select-String -Path $monitorXml -Pattern "NEXT_PUBLIC_BASE_PATH" -Quiet)) {
     (Get-Content $monitorXml -Raw) -replace "</service>", "  <env name=`"NEXT_PUBLIC_BASE_PATH`" value=`"/WayData/monitor`"/>`r`n</service>" |
