@@ -50,6 +50,17 @@ describe("CIGAM / IntegraWay mapping", () => {
     expect(route.clients.map((item) => item.code).sort()).toEqual(["001277", "002628"]);
   });
 
+  it("uses the shipment client when CIGAM omits route origin and destination", () => {
+    const routing = mapCargaDetalhesToRouting({
+      ...detalhes,
+      codigoClientePartida: null,
+      codigoClienteChegada: null,
+      veiculosRoteirizacao: detalhes.veiculosRoteirizacao,
+    });
+    expect(routing.codigoClientePartida).toBe("001277");
+    expect(routing.codigoClienteChegada).toBe("001277");
+  });
+
   it("does not treat the CIGAM carga id as a WayData external code", () => {
     const route = mapCargaRowToRoute(detalhes, { company: "PANEBRAS", branch: "001" });
     expect(route.externalCode).toBeUndefined();

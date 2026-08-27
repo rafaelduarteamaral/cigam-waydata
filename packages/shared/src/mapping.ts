@@ -224,10 +224,28 @@ export function mapCargaDetalhesToRouting(row: AsmxRecord, externalCode = 0): Wa
   if (dataFinal === dataInicial) dataFinal = `${dataInicial.slice(0, 10)}T23:59:00`;
   const cargaId = stringValue(row.codigoRoteirizacao) ?? stringValue(row.carga) ?? stringValue(row.nome) ?? "ROTA";
   const nome = uniqueRouteName(cargaId, dataInicial);
+  // Algumas cargas do ASMX chegam sem os códigos de origem/destino. A remessa
+  // contém o cliente efetivamente atendido e é a melhor referência disponível
+  // para manter a roteirização válida na WayData nesses casos.
+  const shipmentClient = vehicles.flatMap((vehicle) => vehicle.remessas.map((shipment) => shipment.codigoCliente))[0] ?? "";
+  const codigoClientePartida = clip(
+    stringValue(row.codigoClientePartida)
+      ?? stringValue(row.codigoClienteOrigem)
+      ?? stringValue(row.codigoCliente)
+      ?? shipmentClient,
+    18,
+  );
+  const codigoClienteChegada = clip(
+    stringValue(row.codigoClienteChegada)
+      ?? stringValue(row.codigoClienteDestino)
+      ?? stringValue(row.codigoCliente)
+      ?? shipmentClient,
+    18,
+  );
   return wayDataRoutingSchema.parse({
     nome,
-    codigoClientePartida: clip(stringValue(row.codigoClientePartida) ?? "", 18),
-    codigoClienteChegada: clip(stringValue(row.codigoClienteChegada) ?? "", 18),
+    codigoClientePartida,
+    codigoClienteChegada,
     dataInicial,
     dataFinal,
     veiculosRoteirizacao: vehicles,
@@ -283,13 +301,8 @@ export function mapCargaRowToRoute(row: AsmxRecord, options: { company: string; 
     const clean = Object.fromEntries(Object.entries(row).filter(([key]) => !ASMX_META.has(key)));
     return cigamRouteSchema.parse({ ...base, routing: clean });
   }
-  try {
-    const routing = mapCargaDetalhesToRouting(row, 0);
-    return cigamRouteSchema.parse({ ...base, clients: clientsFromRouting(routing), invoices: invoicesFromRouting(routing), routing });
-  } catch {
-    const clean = Object.fromEntries(Object.entries(row).filter(([key]) => !ASMX_META.has(key)));
-    return cigamRouteSchema.parse({ ...base, routing: clean });
-  }
+  const routing = mapCargaDetalhesToRouting(row, 0);
+  return cigamRouteSchema.parse({ ...base, clients: clientsFromRouting(routing), invoices: invoicesFromRouting(routing), routing });
 }
 
 export function mapEmpresaToWayDataClient(row: AsmxRecord, fallbackCode: string): WayDataClient | null {
