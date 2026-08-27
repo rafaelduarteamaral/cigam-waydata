@@ -25,6 +25,7 @@ export interface CigamPaths {
   tracking: string;
   attachment: string;
   companies: string;
+  routingCode: string;
 }
 
 export interface CigamAsmxOptions {
@@ -42,6 +43,7 @@ const restPaths: CigamPaths = {
   tracking: "/notas-fiscais/{id}/acompanhamentos",
   attachment: "/notas-fiscais/{id}/anexos",
   companies: "/clientes/{id}",
+  routingCode: "/integracoes/waydata/rotas/{id}/codigo",
 };
 
 const asmxPaths: CigamPaths = {
@@ -51,6 +53,7 @@ const asmxPaths: CigamPaths = {
   tracking: "/Acompanhamento_Criar",
   attachment: "/Acompanhamento_Criar",
   companies: "/Empresas",
+  routingCode: "/CargasGravaRoteirizacao",
 };
 
 function at(path: string, id: string): string {
@@ -259,6 +262,24 @@ export class CigamClient {
       });
     }
     return this.http.request(at(this.paths.status, id), { method: "PATCH", body: JSON.stringify(payload) });
+  }
+
+  recordRoutingCode(numeroRemessa: string, codigoRoteirizacao: number): Promise<unknown> {
+    if (this.asmx) {
+      return this.http.request(this.paths.routingCode, {
+        method: "POST",
+        body: JSON.stringify({
+          Roteirizacao: {
+            codigoRoteirizacao,
+            numeroRemessa: String(numeroRemessa),
+          },
+        }),
+      });
+    }
+    return this.http.request(at(this.paths.routingCode, numeroRemessa), {
+      method: "PATCH",
+      body: JSON.stringify({ codigoRoteirizacao }),
+    });
   }
 
   addInvoiceTracking(invoiceId: string, result: DeliveryResult, idempotencyKey: string): Promise<unknown> {

@@ -46,11 +46,13 @@ describe("CigamClient ASMX", () => {
     const route = await client.getRoute("36858");
     expect(route.invoices[0]).toMatchObject({ number: "434673", companyCode: "001277" });
     await expect(client.getCompany({ code: "001277" })).resolves.toMatchObject({ codigo: "001277", nome: "Padaria Centro Ltda" });
+    await client.recordRoutingCode("36858", 7001);
     await client.updateIntegrationStatus("36858", { status: "INTEGRATED" });
     await client.recordInvoiceFollowUp({ invoiceId: "434673", result: { routeCode: 1, orderCode: "36858", invoiceId: "434673", status: "ENTREGUE", companyCode: "001277" }, receipt: { filename: "canhoto.png", contentType: "image/png", contentBase64: "abc" }, idempotencyKey: "k1" });
     await client.recordInvoiceFollowUp({ invoiceId: "434673", result: { routeCode: 7001, orderCode: "36858", invoiceId: "434673", status: "INTEGRATED", companyCode: "001277" }, idempotencyKey: "ext-1", titleCode: "INT", history: "WAYDATA codigoRoteirizacao=7001 carga=36858" });
     const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
     expect(bodies.some((body) => body.Situacao?.situacao === "F" && body.Situacao?.codigoRoteirizacao === "36858" && body.Situacao?.carga === "36858")).toBe(true);
+    expect(bodies.some((body) => body.Roteirizacao?.codigoRoteirizacao === 7001 && body.Roteirizacao?.numeroRemessa === "36858")).toBe(true);
     expect(bodies.some((body) => body.acompanhamento?.Codigo_titulo === "CAN" && String(body.acompanhamento?.Anexos).startsWith("data:image/png;base64,"))).toBe(true);
     expect(bodies.some((body) => body.acompanhamento?.Codigo_titulo === "INT" && String(body.acompanhamento?.Historico).includes("codigoRoteirizacao=7001"))).toBe(true);
   });

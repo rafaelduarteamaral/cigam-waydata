@@ -118,6 +118,14 @@ export class IntegrationWorker {
       const response = externalCode ? await this.dependencies.wayData!.updateRouting(routing) : await this.dependencies.wayData!.createRouting(routing);
       const savedCode = Number(response.CodigoRoteirizacao ?? externalCode);
       if (savedCode) await this.dependencies.store.setRouteExternalCode(mapKey, savedCode);
+      // O CIGAM mantém o vínculo da remessa com o código externo em um endpoint
+      // próprio; Cargas_MudaSituacao altera somente a situação da carga.
+      const saveRoutingCode = (this.dependencies.cigam as unknown as {
+        recordRoutingCode?: (numeroRemessa: string, codigoRoteirizacao: number) => Promise<unknown>;
+      }).recordRoutingCode;
+      if (savedCode && typeof saveRoutingCode === "function") {
+        await saveRoutingCode.call(this.dependencies.cigam, route.id, savedCode);
+      }
       await this.dependencies.cigam!.updateIntegrationStatus(route.id, { status: "INTEGRATED", externalCode: savedCode, idempotencyKey: correlationId, synchronizedAt: new Date().toISOString() });
       await this.persistExternalCode(route, savedCode);
       await this.log({
