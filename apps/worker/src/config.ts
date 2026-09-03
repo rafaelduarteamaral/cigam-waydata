@@ -38,7 +38,7 @@ export function loadConfig() {
           ["attachment", process.env.CIGAM_ATTACHMENT_PATH],
           ["companies", process.env.CIGAM_COMPANIES_PATH],
           ["routingCode", process.env.CIGAM_ROUTING_CODE_PATH],
-        ] as const).filter((entry): entry is [typeof entry[0], string] => Boolean(entry[1]))), authorizationScheme: process.env.CIGAM_AUTH_SCHEME === "raw" ? "raw" as const : "bearer" as const, ...(process.env.CIGAM_API_STYLE === "asmx" ? { asmx: { unit: process.env.CIGAM_UNIT ?? "001", lookbackDays: Number(process.env.CIGAM_LOOKBACK_DAYS ?? 4), page: 1, maxPages: Number(process.env.CIGAM_MAX_PAGES ?? 50) } } : {}) }
+        ] as const).filter((entry): entry is [typeof entry[0], string] => Boolean(entry[1]))), authorizationScheme: process.env.CIGAM_AUTH_SCHEME === "raw" ? "raw" as const : "bearer" as const, ...(process.env.CIGAM_API_STYLE === "asmx" ? { asmx: { unit: process.env.CIGAM_UNIT ?? "001", lookbackDays: Number(process.env.CIGAM_LOOKBACK_DAYS ?? 4), ...(process.env.CIGAM_START_DATE ? { startDate: process.env.CIGAM_START_DATE } : {}), page: 1, maxPages: Number(process.env.CIGAM_MAX_PAGES ?? 50) } } : {}) }
       : null,
     wayData: syncMode === "write"
       ? { baseUrl: required("WAYDATA_BASE_URL"), token: required("WAYDATA_TOKEN") }

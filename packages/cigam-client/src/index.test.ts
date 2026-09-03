@@ -16,6 +16,18 @@ describe("CigamClient ASMX", () => {
     expect(fetchMock).toHaveBeenCalledWith("https://cigam.test/API.asmx/Cargas_Buscar", expect.objectContaining({ method: "POST", headers: expect.objectContaining({ Authorization: "raw-secret" }) }));
   });
 
+  it("does not search for routes before CIGAM_START_DATE", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-12T15:00:00-03:00"));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ d: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "raw-secret", authorizationScheme: "raw", asmx: { unit: "001", lookbackDays: 4, startDate: "2026-08-10" } });
+    await client.listPendingRoutes();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ filtros: { dt_inicial: "2026-08-10", dt_final: "2026-08-12" } });
+    vi.useRealTimers();
+  });
+
   it("fails visibly when the CIGAM list exposes pages but no valid carga codes", async () => {
     const fetchMock = vi.fn().mockImplementation(() => new Response(JSON.stringify({ d: [{ mensagem: "Página 1", Paginas: "3", nome: "CARGAS", codigoRoteirizacao: 0 }] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

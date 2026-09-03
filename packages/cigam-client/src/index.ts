@@ -32,6 +32,8 @@ export interface CigamAsmxOptions {
   unit: string;
   company?: string;
   lookbackDays?: number;
+  /** Data mínima (YYYY-MM-DD) aceita na busca de cargas. */
+  startDate?: string;
   page?: number;
   maxPages?: number;
 }
@@ -58,6 +60,20 @@ const asmxPaths: CigamPaths = {
 
 function at(path: string, id: string): string {
   return path.replace("{id}", encodeURIComponent(id));
+}
+
+function configuredStartDate(value: string | undefined): Date | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new Error("CIGAM_START_DATE deve usar o formato YYYY-MM-DD");
+  }
+  // Meio-dia evita que uma conversão de fuso volte um dia ao serializar para o ASMX.
+  const parsed = new Date(`${normalized}T12:00:00`);
+  if (Number.isNaN(parsed.getTime()) || toAsmxDate(parsed) !== normalized) {
+    throw new Error("CIGAM_START_DATE não contém uma data válida");
+  }
+  return parsed;
 }
 
 function companyCodesEqual(left: string, right: string): boolean {
@@ -170,7 +186,9 @@ export class CigamClient {
   async listPendingRoutes(since?: string): Promise<CigamRoute[]> {
     if (this.asmx) {
       const to = new Date();
-      const from = since ? new Date(since) : new Date(to.getTime() - Math.max(0, (this.asmx.lookbackDays ?? 4) - 1) * 86_400_000);
+      const requestedFrom = since ? new Date(since) : new Date(to.getTime() - Math.max(0, (this.asmx.lookbackDays ?? 4) - 1) * 86_400_000);
+      const startDate = configuredStartDate(this.asmx.startDate);
+      const from = startDate && requestedFrom < startDate ? startDate : requestedFrom;
       const firstPage = Math.max(1, this.asmx.page ?? 1);
       const maxPages = Math.max(1, this.asmx.maxPages ?? 50);
       let pages = firstPage;
