@@ -117,6 +117,7 @@ export const deliveryResultSchema = z.object({
   occurredAt: z.string().optional(),
   receiptUrl: z.string().url().optional(),
   receiptId: z.string().optional(),
+  receiptPending: z.boolean().optional(),
   companyCode: z.string().optional(),
 });
 

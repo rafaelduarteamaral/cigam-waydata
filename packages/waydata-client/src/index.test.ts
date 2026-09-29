@@ -4,13 +4,52 @@ import { WayDataClient } from "./index";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("WayDataClient", () => {
+  it("uses codigo from production covers to fetch delivery details", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ codigo: 9001 }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ codigo: 9001, entregas: [
+        { codigoCliente: "000123", pedidos: [{ codigo: "P1", nfe: 123, status: { descricao: "Entregue" } }] },
+      ] }]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new WayDataClient({ baseUrl: "https://wayds.net", token: "secret", maxRetries: 0 });
+    await expect(client.listDeliveryResults("2026-09-29", "2026-09-29")).resolves.toMatchObject([
+      { routeCode: "9001", invoiceId: "123", companyCode: "000123", status: "ENTREGUE" },
+    ]);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://wayds.net/rota?codigorota=9001");
+  });
+
   it("parses nested IntegraWay v3 delivery results", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      items: [{ CodigoRota: 9, Pedidos: [{ nfe: 100, codigoPedido: "P1", TipoStatus: 1, Marcacao: { Fotos: [{ Tipo: { FormatoImagem: 3 }, Url: "https://wayds.net/canhoto.png" }] } }] }],
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ codigorota: 9, CodigoRoteirizacao: 7001 }, { CodigoRota: 9 }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+      items: [{ CodigoRota: 9, Pedidos: [{ nfe: 100, codigoPedido: "P1", TipoStatus: 1, Marcacao: { Fotos: [{ statusMarcacao: "Realizado", Tipo: { FormatoImagem: 3 }, Url: "https://wayds.net/canhoto.png" }] } }] }],
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new WayDataClient({ baseUrl: "https://wayds.net/integraway/api/v1", token: "secret", maxRetries: 0 });
-    await expect(client.listDeliveryResults("2026-08-01", "2026-08-04")).resolves.toMatchObject([{ invoiceId: "100", status: "ENTREGUE", receiptUrl: "https://wayds.net/canhoto.png" }]);
+    await expect(client.listDeliveryResults("2026-08-01", "2026-08-04")).resolves.toMatchObject([{ routeCode: "9", invoiceId: "100", status: "ENTREGUE", receiptUrl: "https://wayds.net/canhoto.png" }]);
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      "https://wayds.net/integraway/api/v1/rota/capa?dataInicial=2026-08-01&dataFinal=2026-08-04",
+      "https://wayds.net/integraway/api/v1/rota?codigorota=9",
+    ]);
+  });
+
+  it("does not use CodigoRoteirizacao as CodigoRota when a cover is invalid", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([{ CodigoRoteirizacao: 7001 }]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new WayDataClient({ baseUrl: "https://wayds.net", token: "secret", maxRetries: 0 });
+    await expect(client.listDeliveryResults("2026-08-01", "2026-08-01")).rejects.toThrow("Capa WayData sem CodigoRota válido");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("fetches pending routes even outside the cover date window", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("[]", { status: 200 }))
+      .mockResolvedValueOnce(new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new WayDataClient({ baseUrl: "https://wayds.net", token: "secret", maxRetries: 0 });
+    await client.listDeliveryResults("2026-09-29", "2026-09-29", ["9001", "9001"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("https://wayds.net/rota?codigorota=9001");
   });
 
   it("rejects receipt downloads from hosts outside the allow-list", async () => {
@@ -29,7 +68,7 @@ describe("WayDataClient", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ nome: "36858-0803", CodigoRoteirizacao: 7001, status: 200 }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ mensagem: "já existe" }), { status: 409 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([{ nome: "36858-0803", CodigoRota: 7001 }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ nome: "36858-0803", CodigoRota: 9, CodigoRoteirizacao: 7001 }]), { status: 200 }))
       .mockResolvedValueOnce(new Response("missing", { status: 404 }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new WayDataClient({ baseUrl: "https://wayds.net/integraway/api/v1", token: "secret", maxRetries: 0 });

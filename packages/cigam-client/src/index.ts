@@ -2,7 +2,6 @@ import { HttpClient } from "@cigam-waydata/http-client";
 import {
   buildAcompanhamento,
   cigamRouteSchema,
-  dataUriForReceipt,
   deliveryResultSchema,
   digits,
   mapCargaRowToRoute,
@@ -129,6 +128,10 @@ export class CigamClient {
     this.http = new HttpClient({ baseUrl: options.baseUrl, ...(options.authorizationScheme === "raw" ? { authorizationHeader: options.token } : { token: options.token }), ...(options.timeoutMs != null ? { timeoutMs: options.timeoutMs } : {}), ...(options.maxRetries != null ? { maxRetries: options.maxRetries } : {}) });
     this.asmx = options.asmx;
     this.paths = { ...(options.asmx ? asmxPaths : restPaths), ...Object.fromEntries(Object.entries(options.paths ?? {}).filter(([, value]) => value)) };
+  }
+
+  get usesReceiptLinks(): boolean {
+    return Boolean(this.asmx);
   }
 
   private rememberCompany(client: WayDataClient): void {
@@ -343,10 +346,12 @@ export class CigamClient {
         invoiceNumber: input.result.invoiceId || input.invoiceId,
         companyCode: input.result.companyCode ?? input.invoiceId,
         ...(input.result.occurredAt ? { occurredAt: input.result.occurredAt } : {}),
-        history: input.history ?? `Status WayData: ${input.result.status}`,
+        history: input.history ?? (input.result.receiptUrl
+          ? `ANEXO CANHOTO WAYDATA ${input.result.receiptUrl} | Status WayData: ${input.result.status}`
+          : `Status WayData: ${input.result.status}`),
         ...(input.titleCode ? { titleCode: input.titleCode } : {}),
-        ...(input.receipt ? { receiptDataUri: dataUriForReceipt(input.receipt.contentType, input.receipt.contentBase64) } : {}),
       });
+      acompanhamento.Anexos = input.result.receiptUrl ?? "";
       return this.http.request(this.paths.tracking, {
         method: "POST",
         headers: { "Idempotency-Key": input.idempotencyKey },

@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { JsonlStore } from "@cigam-waydata/file-logger";
-import type { CigamRoute } from "@cigam-waydata/shared";
+import { mapIntegraWayDeliveries, type CigamRoute } from "@cigam-waydata/shared";
 import { describe, expect, it, vi } from "vitest";
 import { IntegrationWorker } from "./worker";
 
@@ -77,7 +77,7 @@ describe("IntegrationWorker", () => {
         correlationId: "ROUTE:01:R1",
         status: "ERROR",
         request: { method: "PUT", endpoint: "/Roteirizacao/integracao" },
-        requestPayload: expect.objectContaining({ nome: "Rota teste", codigoRoteirizacao: 0 }),
+        requestPayload: expect.objectContaining({ nome: "R1-0808", codigoRoteirizacao: 0 }),
       }),
     ]));
 
@@ -120,6 +120,57 @@ describe("IntegrationWorker", () => {
     const today = new Date().toISOString().slice(0, 10);
     const logs = await store.readLogs(today, today);
     expect(logs.some((event) => event.correlationId === "ROUTE:01:R1" && event.status === "SUCCESS" && event.httpStatus === 405)).toBe(true);
+  });
+
+  it("records ASMX receipt links without downloads and retries failures before marking success", async () => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-links-")));
+    const cigam = {
+      usesReceiptLinks: true,
+      listPendingRoutes: vi.fn().mockResolvedValue([]),
+      recordInvoiceFollowUp: vi.fn().mockRejectedValueOnce(new Error("CIGAM indisponível")).mockResolvedValue({}),
+    };
+    const result = { routeCode: 9001, orderCode: "P1", invoiceId: "438694", companyCode: "000835", status: "ENTREGUE", receiptId: "F1", receiptUrl: "https://wayds.net/canhoto.jpg" };
+    const wayData = { listDeliveryResults: vi.fn().mockResolvedValue([result]), downloadReceipt: vi.fn() };
+    const worker = new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData as never });
+    await worker.runCycle();
+    await worker.runCycle();
+    await worker.runCycle();
+    expect(wayData.downloadReceipt).not.toHaveBeenCalled();
+    expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledTimes(2);
+    expect(cigam.recordInvoiceFollowUp).toHaveBeenLastCalledWith({ invoiceId: "438694", result, idempotencyKey: "RECEIPT:438694:F1" });
+  });
+
+  it("persists pending photos across restarts until Realizado, URL and CIGAM success", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "worker-pending-photo-"));
+    const store = new JsonlStore(directory);
+    const cigam = { usesReceiptLinks: true, listPendingRoutes: vi.fn().mockResolvedValue([]),
+      recordInvoiceFollowUp: vi.fn<(input: { result: { receiptUrl?: string } }) => Promise<unknown>>().mockResolvedValue({}) };
+    const payload = (statusMarcacao: string, url: string) => mapIntegraWayDeliveries({ codigo: 9001,
+      entregas: [{ pedidos: [{ codigo: "P1", nfe: 123, status: { descricao: "Entregue" },
+        fotos: [{ codigo: 88, statusMarcacao, url }] }] }] });
+    const wayData = { listDeliveryResults: vi.fn().mockResolvedValue(payload("Pendente", "https://example.com/photo.jpg")), downloadReceipt: vi.fn() };
+    const run = () => new IntegrationWorker({ store: new JsonlStore(directory), enabled: true,
+      cigam: cigam as never, wayData: wayData as never }).runCycle();
+    await run();
+    expect(await store.readPendingReceiptRoutes()).toEqual(["9001"]);
+    expect(cigam.recordInvoiceFollowUp.mock.calls[0]?.[0]?.result.receiptUrl).toBeUndefined();
+    wayData.listDeliveryResults.mockResolvedValue([]);
+    await run();
+    expect(await store.readPendingReceiptRoutes()).toEqual(["9001"]);
+    wayData.listDeliveryResults.mockResolvedValue(payload("Realizado", ""));
+    await run();
+    expect(await store.readPendingReceiptRoutes()).toEqual(["9001"]);
+    wayData.listDeliveryResults.mockResolvedValue(payload("Realizado", "https://example.com/photo.jpg"));
+    cigam.recordInvoiceFollowUp.mockRejectedValueOnce(new Error("CIGAM indisponível"));
+    await run();
+    expect(await store.readPendingReceiptRoutes()).toEqual(["9001"]);
+    await run();
+    expect(wayData.listDeliveryResults).toHaveBeenLastCalledWith(expect.any(String), expect.any(String), ["9001"]);
+    expect(await store.readPendingReceiptRoutes()).toEqual([]);
+    const calls = cigam.recordInvoiceFollowUp.mock.calls.length;
+    await run();
+    expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledTimes(calls);
+    expect(wayData.downloadReceipt).not.toHaveBeenCalled();
   });
 
   it("skips NAO_INFORMADO without receipt and creates a new follow-up for PARCIAL and REENTREGA", async () => {

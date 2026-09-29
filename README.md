@@ -123,3 +123,15 @@ pnpm --filter @cigam-waydata/monitor build
 pnpm start:prod:monitor
 pnpm start:prod:worker
 ```
+
+### Retornos WayData e canhotos no CIGAM ASMX (29/09/2026)
+
+O envio em `PUT /Roteirizacao/integracao` retorna `CodigoRoteirizacao`, usado no vínculo e nas atualizações da roteirização. Esse valor é distinto de `CodigoRota`.
+
+O ciclo de retornos consulta `GET /rota/capa?dataInicial=YYYY-MM-DD&dataFinal=YYYY-MM-DD`, extrai os códigos de rota sem duplicação e consulta cada detalhe em `GET /rota?codigorota=XXXX`. Para localizar uma capa específica, `listRouteCovers` aceita o nome exato da roteirização e o período. A recuperação de um envio duplicado somente aceita `CodigoRoteirizacao` explícito; não substitui esse identificador pelo código da rota.
+
+No CIGAM ASMX, `POST /Acompanhamento_Criar` recebe `Anexos` com a URL do canhoto (apenas o link, sem Base64), `Hora` no formato `HHmmss` e `Historico` com `ANEXO CANHOTO WAYDATA <URL recebida> | Status WayData: <status>`. Sem URL de canhoto, `Anexos` permanece vazio. O worker não baixa o canhoto nesse modo. A deduplicação por nota e canhoto só registra sucesso após a resposta do CIGAM; o modo REST continua aceitando anexos binários.
+
+Validação local usa respostas simuladas. A homologação em produção ainda depende de um retorno real da capa e dos detalhes da rota.
+
+Canhotos: a foto só é enviada quando `statusMarcacao` é `Realizado` e `url` contém um link HTTP(S). Fotos pendentes, sem status ou sem URL continuam sendo consultadas a cada ciclo. O status da entrega pode ser registrado antes, sem encerrar a busca do canhoto. As rotas descobertas com pendências ficam em `data/runtime/pending-receipt-routes.json`, sobrevivem a reinícios e são consultadas pelo código mesmo fora da janela de quatro dias da capa. A pendência só é removida após todas as fotos elegíveis estarem prontas e os respectivos links serem aceitos pelo CIGAM.

@@ -59,7 +59,8 @@ describe("client-like end-to-end homologation", () => {
       wayDataCalls.push({ method: request.method ?? "", url: request.url ?? "", authorization: request.headers.authorization, body });
       if (request.method === "GET" && request.url?.startsWith("/cliente/id")) return json(response, 404, { message: "not found" });
       if (request.method === "PUT" && request.url === "/Roteirizacao/integracao") return json(response, 200, { nome: "Rota homologacao", CodigoRoteirizacao: 7001, veiculoRoteirizacao: [], status: 200 });
-      if (request.method === "GET" && request.url?.startsWith("/rota?")) return json(response, 200, [{ routeCode: 7001, orderCode: "PED-20", invoiceId: "NF-500", status: "ENTREGUE", occurredAt: "2026-08-08T14:00:00-03:00", receiptId: "REC-1", receiptUrl }]);
+      if (request.method === "GET" && request.url?.startsWith("/rota/capa?")) return json(response, 200, [{ nome: "Rota homologacao", CodigoRoteirizacao: 7001, codigorota: 9001 }]);
+      if (request.method === "GET" && request.url === "/rota?codigorota=9001") return json(response, 200, [{ routeCode: 9001, orderCode: "PED-20", invoiceId: "NF-500", status: "ENTREGUE", occurredAt: "2026-08-08T14:00:00-03:00", receiptId: "REC-1", receiptUrl }]);
       if (request.method === "GET" && request.url === "/receipt.pdf") { response.writeHead(200, { "Content-Type": "application/pdf" }); response.end(Buffer.from("%PDF-1.4 signed receipt")); return; }
       return json(response, 200, { ok: true });
     });

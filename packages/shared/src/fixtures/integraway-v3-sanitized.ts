@@ -11,8 +11,8 @@ export const integraWayV3Sanitized = {
       Marcacao: {
         Fotos: [
           { Id: "foto-1", Tipo: { FormatoImagem: 1 }, Url: "https://wayds.net/foto-comum.jpg" },
-          { Id: "canhoto-1", Tipo: { FormatoImagem: 3 }, Url: "https://wayds.net/canhoto-1.png" },
-          { Id: "canhoto-2", Tipo: { FormatoImagem: 3 }, Url: "https://wayds.net/canhoto-2.png" },
+          { Id: "canhoto-1", statusMarcacao: "Realizado", Tipo: { FormatoImagem: 3 }, Url: "https://wayds.net/canhoto-1.png" },
+          { Id: "canhoto-2", statusMarcacao: "Realizado", Tipo: { FormatoImagem: 3 }, Url: "https://wayds.net/canhoto-2.png" },
         ],
       },
     },

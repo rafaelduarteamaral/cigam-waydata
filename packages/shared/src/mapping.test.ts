@@ -29,6 +29,49 @@ const detalhes = {
 };
 
 describe("CIGAM / IntegraWay mapping", () => {
+  it("maps production route deliveries, descriptive status and untyped order photos", () => {
+    const results = mapIntegraWayDeliveries([{
+      codigo: 9001,
+      entregas: [{ codigoCliente: "000123", pedidos: [
+        { codigo: "P1", nfe: 123, tipoStatus: 0,
+          status: { descricao: "Entregue", data: "2026-09-23T17:50:45" },
+          fotos: [{ codigo: 88, statusMarcacao: "Realizado", url: "https://example.com/receipt.png" },
+            { codigo: 89, url: "https://example.com/other.png", formatoImagem: 1 }] },
+        { codigo: "P2", nfe: 124, tipoStatus: 0, status: { descricao: "NaoInformado" }, fotos: [] },
+        { codigo: "P3", nfe: 125, tipoStatus: 0, status: { descricao: "NaoEntregue" }, fotos: [] },
+      ] }],
+    }]);
+    expect(results).toHaveLength(3);
+    expect(results[0]).toMatchObject({ routeCode: "9001", orderCode: "P1", invoiceId: "123",
+      companyCode: "000123", status: "ENTREGUE", occurredAt: "2026-09-23T17:50:45",
+      receiptId: "88", receiptUrl: "https://example.com/receipt.png" });
+    expect(results[1]).toMatchObject({ status: "NAO_INFORMADO" });
+    expect(results[2]).toMatchObject({ status: "NAO_ENTREGUE" });
+  });
+
+  it.each([
+    ["Pendente", "https://example.com/photo.jpg", false],
+    [undefined, "https://example.com/photo.jpg", false],
+    ["Realizado", "", false],
+    ["Realizado", "https://example.com/photo.jpg", true],
+  ])("requires Realizado and a URL for a photo (%s, %s)", (statusMarcacao, url, ready) => {
+    const [result] = mapIntegraWayDeliveries({ codigo: 9001, entregas: [{ pedidos: [{
+      codigo: "P1", nfe: 123, status: { descricao: "Entregue" },
+      fotos: [{ codigo: 88, statusMarcacao, url }],
+    }] }] });
+    expect(result?.receiptUrl).toBe(ready ? url : undefined);
+    expect(result?.receiptPending).toBe(!ready);
+  });
+
+  it("keeps a route pending when only some photos are ready", () => {
+    const [result] = mapIntegraWayDeliveries({ codigo: 9001, entregas: [{ pedidos: [{
+      codigo: "P1", nfe: 123, statusMarcacao: "Realizado", status: { descricao: "Entregue" },
+      fotos: [{ codigo: 88, url: "https://example.com/ready.jpg" },
+        { codigo: 89, statusMarcacao: "Pendente", url: "https://example.com/pending.jpg" }],
+    }] }] });
+    expect(result).toMatchObject({ receiptUrl: "https://example.com/ready.jpg", receiptPending: true });
+  });
+
   it("parses Microsoft dates and CNPJ", () => {
     expect(parseMicrosoftDate("/Date(1785726000000)/")?.toISOString()).toBe("2026-08-03T03:00:00.000Z");
     expect(formatCnpj("11652819000150")).toBe("11.652.819/0001-50");
@@ -96,7 +139,7 @@ describe("CIGAM / IntegraWay mapping", () => {
           Marcacao: {
             Fotos: [
               { Tipo: { FormatoImagem: 1 }, Url: "https://wayds.net/foto-comum.jpg" },
-              { Id: "canhoto-1", Tipo: { FormatoImagem: 3 }, Url: "https://wayds.net/canhoto.png" },
+              { Id: "canhoto-1", statusMarcacao: "Realizado", Tipo: { FormatoImagem: 3 }, Url: "https://wayds.net/canhoto.png" },
             ],
           },
         },
@@ -143,7 +186,7 @@ describe("CIGAM / IntegraWay mapping", () => {
     expect(mapIntegrationStatusToSituacao("INTEGRATED")).toBe("F");
     expect(mapIntegrationStatusToSituacao("CANCELLED")).toBe("C");
     expect(mapIntegrationStatusToSituacao("ERROR")).toBe("A");
-    const payload = buildAcompanhamento({ invoiceNumber: "434673", companyCode: "001277", history: "Canhoto WayData", occurredAt: "2026-08-03T09:01:00-03:00", receiptDataUri: "data:image/png;base64,abc" });
-    expect(payload).toMatchObject({ Cd_empresa: "001277", Contato_os_lanc: "434673", Codigo_titulo: "CAN", Anexos: "data:image/png;base64,abc" });
+    const payload = buildAcompanhamento({ invoiceNumber: "434673", companyCode: "001277", history: "Canhoto WayData", occurredAt: "2026-08-03T09:01:00-03:00" });
+    expect(payload).toMatchObject({ Cd_empresa: "001277", Contato_os_lanc: "434673", Codigo_titulo: "CAN", Hora: "090100", Anexos: "" });
   });
 });

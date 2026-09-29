@@ -26,7 +26,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function routingCodeOf(raw: unknown): number | undefined {
   const record = asRecord(raw);
   if (!record) return undefined;
-  const code = Number(record.CodigoRoteirizacao ?? record.codigoRoteirizacao ?? record.CodigoRota ?? record.codigoRota);
+  const code = Number(record.CodigoRoteirizacao ?? record.codigoRoteirizacao);
   return Number.isInteger(code) && code > 0 ? code : undefined;
 }
 
@@ -144,7 +144,7 @@ export class WayDataClient {
   }
 
   getRoute(code: string): Promise<unknown> {
-    return this.http.request(`/rota?codigoRota=${encodeURIComponent(code)}`);
+    return this.http.request(`/rota?codigorota=${encodeURIComponent(code)}`);
   }
 
   async deleteRoute(code: string): Promise<unknown> {
@@ -165,9 +165,25 @@ export class WayDataClient {
     }
   }
 
-  async listDeliveryResults(dateFrom: string, dateTo: string): Promise<DeliveryResult[]> {
-    const raw = await this.http.request<unknown>(`/rota?dataInicial=${encodeURIComponent(dateFrom)}&dataFinal=${encodeURIComponent(dateTo)}`);
-    return mapIntegraWayDeliveries(raw);
+  async listRouteCovers(dateFrom: string, dateTo: string, nome?: string): Promise<Record<string, unknown>[]> {
+    const raw = await this.http.request<unknown>(`/rota/capa?dataInicial=${encodeURIComponent(dateFrom)}&dataFinal=${encodeURIComponent(dateTo)}`);
+    const record = asRecord(raw);
+    const items = Array.isArray(raw) ? raw : Array.isArray(record?.items) ? record.items : raw == null ? [] : [raw];
+    return items.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
+      .filter((item) => nome == null || String(item.nome ?? item.Nome ?? "") === nome);
+  }
+
+  async listDeliveryResults(dateFrom: string, dateTo: string, pendingRouteCodes: string[] = []): Promise<DeliveryResult[]> {
+    const covers = await this.listRouteCovers(dateFrom, dateTo);
+    const codes = new Set<string>(pendingRouteCodes);
+    for (const cover of covers) {
+      const code = Number(cover.codigorota ?? cover.codigoRota ?? cover.CodigoRota ?? cover.codigo);
+      if (!Number.isSafeInteger(code) || code <= 0) throw new Error("Capa WayData sem CodigoRota válido");
+      codes.add(String(code));
+    }
+    const results: DeliveryResult[] = [];
+    for (const code of codes) results.push(...mapIntegraWayDeliveries(await this.getRoute(code)));
+    return results;
   }
 
   async downloadReceipt(url: string, maxBytes = 10 * 1024 * 1024): Promise<{ bytes: Uint8Array; contentType: string }> {
@@ -192,31 +208,10 @@ export class WayDataClient {
 
   private async findRoutingCode(nome: string, dataInicial: string): Promise<number | undefined> {
     const day = dataInicial.slice(0, 10);
-    const dayDate = new Date(`${day}T12:00:00`);
-    const next = new Date(dayDate.getTime() + 86_400_000).toISOString().slice(0, 10);
-    const prev = new Date(dayDate.getTime() - 86_400_000).toISOString().slice(0, 10);
-    const endpoints = [
-      `/rota?dataInicial=${encodeURIComponent(day)}&dataFinal=${encodeURIComponent(day)}`,
-      `/rota?dataInicial=${encodeURIComponent(prev)}&dataFinal=${encodeURIComponent(next)}`,
-      `/rota/capa?dataInicial=${encodeURIComponent(day)}&dataFinal=${encodeURIComponent(day)}`,
-      `/rota/capa?dataInicial=${encodeURIComponent(prev)}&dataFinal=${encodeURIComponent(next)}`,
-    ];
-    for (const endpoint of endpoints) {
-      try {
-        const raw = await this.http.request<unknown>(endpoint);
-        const record = asRecord(raw);
-        const items = Array.isArray(raw) ? raw : Array.isArray(record?.items) ? record.items : raw != null ? [raw] : [];
-        for (const item of items) {
-          const current = asRecord(item);
-          if (!current) continue;
-          if (String(current.nome ?? current.Nome ?? "") !== nome) continue;
-          const code = routingCodeOf(current);
-          if (code) return code;
-        }
-      } catch {
-        /* tenta o próximo endpoint de reconciliação */
-      }
-    }
+    const covers = await this.listRouteCovers(day, day, nome);
+    // CodigoRota identifica a execução; nunca substitui CodigoRoteirizacao.
+    const codes = [...new Set(covers.map(routingCodeOf).filter((code): code is number => code != null))];
+    if (codes.length === 1) return codes[0];
     return undefined;
   }
 

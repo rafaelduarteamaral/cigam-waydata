@@ -347,21 +347,20 @@ export function buildAcompanhamento(input: {
   occurredAt?: string;
   history: string;
   titleCode?: string;
-  receiptDataUri?: string;
 }): AsmxRecord {
   const when = parseMicrosoftDate(input.occurredAt) ?? new Date();
   const stamp = formatInTimeZone(when);
   return {
     Data: stamp.date,
-    Hora: stamp.time,
+    Hora: stamp.time.replace(/:/g, ""),
     Cd_empresa: input.companyCode,
     Embarque_pedido: "",
     Contato_os_lanc: input.invoiceNumber,
     Sequencia_item: "0",
     Tipo_acompanham: "N",
     Codigo_titulo: input.titleCode ?? "CAN",
-    Historico: clip(input.history, 500),
-    ...(input.receiptDataUri ? { Anexos: input.receiptDataUri } : {}),
+    Historico: input.history,
+    Anexos: "",
   };
 }
 
@@ -370,8 +369,8 @@ function normalizeStatus(value: unknown): string {
   const raw = stringValue(value);
   if (!raw) return "NAO_INFORMADO";
   const key = raw.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-  if (key.includes("nao informado")) return "NAO_INFORMADO";
-  if (key.includes("nao entregue") || key.includes("recusa") || key.includes("devol")) return "NAO_ENTREGUE";
+  if (/nao[ _]*informado/.test(key)) return "NAO_INFORMADO";
+  if (/nao[ _]*entregue/.test(key) || key.includes("recusa") || key.includes("devol")) return "NAO_ENTREGUE";
   if (key.includes("parcial")) return "PARCIAL";
   if (key.includes("reentrega")) return "REENTREGA";
   if (key.includes("entreg")) return "ENTREGUE";
@@ -414,14 +413,22 @@ function invoiceIdsFrom(order: AsmxRecord): string[] {
   return ids;
 }
 
-function receiptsFrom(node: AsmxRecord): Array<{ receiptUrl: string; receiptId: string }> {
+function isReceiptReady(photo: AsmxRecord, order: AsmxRecord): boolean {
+  const marking = asRecord(order.Marcacao) ?? asRecord(order.marcacao);
+  const status = stringValue(photo.statusMarcacao ?? photo.StatusMarcacao
+    ?? marking?.statusMarcacao ?? marking?.StatusMarcacao ?? order.statusMarcacao ?? order.StatusMarcacao);
+  const url = photoUrl(photo);
+  return status?.trim().toLowerCase() === "realizado" && Boolean(url && /^https?:\/\//i.test(url));
+}
+
+function receiptsFrom(node: AsmxRecord, allowUntypedPhotos = false): Array<{ receiptUrl: string; receiptId: string }> {
   const receipts: Array<{ receiptUrl: string; receiptId: string }> = [];
   const seen = new Set<string>();
-  for (const photo of photosOf(node).filter((item) => photoFormat(item) === RECEIPT_IMAGE_FORMAT)) {
+  for (const photo of photosOf(node).filter((item) => photoFormat(item) === RECEIPT_IMAGE_FORMAT || (allowUntypedPhotos && photoFormat(item) == null))) {
     const url = photoUrl(photo);
-    if (!url || seen.has(url)) continue;
+    if (!isReceiptReady(photo, node) || !url || seen.has(url)) continue;
     seen.add(url);
-    receipts.push({ receiptUrl: url, receiptId: stringValue(photo.Id) ?? stringValue(photo.id) ?? url });
+    receipts.push({ receiptUrl: url, receiptId: stringValue(photo.Id) ?? stringValue(photo.id) ?? stringValue(photo.codigo) ?? url });
   }
   return receipts;
 }
@@ -432,20 +439,24 @@ function ordersOf(route: AsmxRecord): AsmxRecord[] {
     .filter((item): item is AsmxRecord => Boolean(item));
 }
 
-function deliveriesFromOrder(route: AsmxRecord, order: AsmxRecord): DeliveryResult[] {
+function deliveriesFromOrder(route: AsmxRecord, order: AsmxRecord, productionDetail = false): DeliveryResult[] {
   const invoiceIds = invoiceIdsFrom(order);
-  const orderCode = stringValue(order.codigoPedido) ?? stringValue(order.CodigoPedido) ?? stringValue(order.numeroPedido) ?? stringValue(order.NumeroPedido) ?? stringValue(order.orderCode) ?? invoiceIds[0];
-  const routeCode = stringValue(route.CodigoRota) ?? stringValue(route.codigoRota) ?? stringValue(route.codigoRoteirizacao) ?? stringValue(order.routeCode);
+  const orderCode = stringValue(order.codigoPedido) ?? stringValue(order.CodigoPedido) ?? stringValue(order.numeroPedido) ?? stringValue(order.NumeroPedido) ?? stringValue(order.orderCode) ?? stringValue(order.codigo) ?? invoiceIds[0];
+  const routeCode = stringValue(route.codigorota) ?? stringValue(route.CodigoRota) ?? stringValue(route.codigoRota) ?? stringValue(route.codigo) ?? stringValue(route.codigoRoteirizacao) ?? stringValue(order.routeCode);
   if (!invoiceIds.length || !orderCode || routeCode == null) return [];
-  const occurred = toLocalDateTime(order.DataEntrega ?? order.dataEntrega ?? order.occurredAt);
+  const statusDetail = asRecord(order.status);
+  const occurred = toLocalDateTime(order.DataEntrega ?? order.dataEntrega ?? order.occurredAt ?? statusDetail?.data);
   const companyCode = stringValue(order.codigoCliente) ?? stringValue(order.CodigoCliente) ?? stringValue(order.Cd_empresa);
-  const status = normalizeStatus(order.TipoStatus ?? order.tipoStatus ?? order.status ?? order.situacao);
-  const receipts = receiptsFrom(order);
+  const status = normalizeStatus(statusDetail?.descricao ?? order.TipoStatus ?? order.tipoStatus ?? order.status ?? order.situacao);
+  const receipts = receiptsFrom(order, productionDetail);
+  const candidates = photosOf(order).filter((photo) => photoFormat(photo) === RECEIPT_IMAGE_FORMAT || (productionDetail && photoFormat(photo) == null));
+  const receiptPending = receipts.length === 0 || candidates.some((photo) => !isReceiptReady(photo, order));
   const bases = invoiceIds.map((invoiceId) => ({
     routeCode,
     orderCode,
     invoiceId,
     status,
+    receiptPending,
     ...(occurred ? { occurredAt: occurred } : {}),
     ...(companyCode ? { companyCode } : {}),
   }));
@@ -463,6 +474,17 @@ export function mapIntegraWayDeliveries(raw: unknown): DeliveryResult[] {
     if (flat.success) {
       results.push(flat.data);
       continue;
+    }
+    for (const rawDelivery of asArray(route.entregas)) {
+      const delivery = asRecord(rawDelivery);
+      if (!delivery) continue;
+      for (const order of ordersOf(delivery)) {
+        results.push(...deliveriesFromOrder(route, {
+          ...order,
+          codigoCliente: order.codigoCliente ?? delivery.codigoCliente,
+          statusMarcacao: order.statusMarcacao ?? order.StatusMarcacao ?? delivery.statusMarcacao ?? delivery.StatusMarcacao,
+        }, true));
+      }
     }
     const orders = ordersOf(route);
     if (orders.length === 0) {

@@ -70,6 +70,9 @@ importers:
       '@cigam-waydata/file-logger':
         specifier: workspace:*
         version: link:../../packages/file-logger
+      '@cigam-waydata/http-client':
+        specifier: workspace:*
+        version: link:../../packages/http-client
       '@cigam-waydata/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
@@ -79,10 +82,10 @@ importers:
       '@cigam-waydata/waydata-client':
         specifier: workspace:*
         version: link:../../packages/waydata-client
-    devDependencies:
       tsx:
         specifier: latest
         version: 4.23.11
+    devDependencies:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

@@ -78,6 +78,34 @@ export class JsonlStore {
     }
   }
 
+  async readPendingReceiptRoutes(): Promise<string[]> {
+    try {
+      const value: unknown = JSON.parse(await readFile(path.resolve(this.dataDirectory, "runtime", "pending-receipt-routes.json"), "utf8"));
+      if (!Array.isArray(value) || value.some((code) => typeof code !== "string" || !/^\d+$/.test(code))) {
+        throw new Error("Arquivo de rotas com canhotos pendentes inválido");
+      }
+      return value;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+  }
+
+  async writePendingReceiptRoutes(codes: string[]): Promise<void> {
+    const dir = path.resolve(this.dataDirectory, "runtime");
+    await mkdir(dir, { recursive: true });
+    const target = path.join(dir, "pending-receipt-routes.json");
+    const temp = `${target}.${process.pid}.tmp`;
+    const handle = await open(temp, "w", 0o640);
+    try {
+      await handle.writeFile(JSON.stringify([...new Set(codes)]));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(temp, target);
+  }
+
   private routeMapPath(): string {
     return path.resolve(this.dataDirectory, "runtime", "route-map.json");
   }

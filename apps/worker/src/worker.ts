@@ -242,8 +242,24 @@ export class IntegrationWorker {
     const days = Math.min(4, Math.max(1, this.dependencies.deliveryLookbackDays ?? 4));
     const to = new Date();
     const from = new Date(to.getTime() - (days - 1) * 86_400_000);
-    const results = await this.dependencies.wayData!.listDeliveryResults(from.toISOString().slice(0, 10), to.toISOString().slice(0, 10));
-    await this.mapLimited(results, (result) => this.processDelivery(result), Math.min(2, this.dependencies.concurrency ?? 4));
+    const pending = new Set(await this.dependencies.store.readPendingReceiptRoutes());
+    const results = await this.dependencies.wayData!.listDeliveryResults(from.toISOString().slice(0, 10), to.toISOString().slice(0, 10), [...pending]);
+    const byRoute = new Map<string, DeliveryResult[]>();
+    for (const result of results) {
+      const code = String(result.routeCode);
+      byRoute.set(code, [...(byRoute.get(code) ?? []), result]);
+      pending.add(code);
+    }
+    // Persist before contacting CIGAM so failures/restarts keep the retry scheduled.
+    await this.dependencies.store.writePendingReceiptRoutes([...pending]);
+    for (const [code, deliveries] of byRoute) {
+      await this.mapLimited(deliveries, (result) => this.processDelivery(result), Math.min(2, this.dependencies.concurrency ?? 4));
+      const completed = await Promise.all(deliveries.map(async (result) => Boolean(result.receiptUrl)
+        && !result.receiptPending
+        && await this.dependencies.store.hasSuccessfulCorrelation(`RECEIPT:${result.invoiceId}:${result.receiptId ?? result.receiptUrl}`)));
+      if (completed.every(Boolean)) pending.delete(code);
+    }
+    await this.dependencies.store.writePendingReceiptRoutes([...pending]);
   }
 
   private async processDelivery(result: DeliveryResult): Promise<void> {
@@ -261,25 +277,26 @@ export class IntegrationWorker {
     if (tracked && (attached || !result.receiptUrl)) return;
 
     let receipt: { filename: string; contentType: string; contentBase64: string } | undefined;
-    if (result.receiptUrl && !attached) {
-      const downloaded = await this.dependencies.wayData!.downloadReceipt(result.receiptUrl);
+    const hasNewReceipt = Boolean(result.receiptUrl && !attached);
+    if (hasNewReceipt && !this.dependencies.cigam!.usesReceiptLinks) {
+      const downloaded = await this.dependencies.wayData!.downloadReceipt(result.receiptUrl!);
       const extension = downloaded.contentType === "application/pdf" ? "pdf" : downloaded.contentType === "image/png" ? "png" : "jpg";
       receipt = { filename: `canhoto-${result.invoiceId}.${extension}`, contentType: downloaded.contentType, contentBase64: Buffer.from(downloaded.bytes).toString("base64") };
     }
 
     try {
-      await this.dependencies.cigam!.recordInvoiceFollowUp({ invoiceId: result.invoiceId, result, ...(receipt ? { receipt } : {}), idempotencyKey: receipt ? receiptKey : trackingKey });
+      await this.dependencies.cigam!.recordInvoiceFollowUp({ invoiceId: result.invoiceId, result, ...(receipt ? { receipt } : {}), idempotencyKey: hasNewReceipt ? receiptKey : trackingKey });
     } catch (error) {
       const classified = classifyHttpError(error);
-      await this.log({ correlationId: receipt ? receiptKey : trackingKey, status: "ERROR", entity: receipt ? "RECEIPT" : "ORDER", operation: "UPDATE", direction: "WAYDATA_TO_CIGAM", message: classified.message, reference: { invoice: result.invoiceId, order: result.orderCode, route: String(result.routeCode) }, ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
+      await this.log({ correlationId: hasNewReceipt ? receiptKey : trackingKey, status: "ERROR", entity: hasNewReceipt ? "RECEIPT" : "ORDER", operation: "UPDATE", direction: "WAYDATA_TO_CIGAM", message: classified.message, reference: { invoice: result.invoiceId, order: result.orderCode, route: String(result.routeCode) }, ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
       if (classified.kind === "NOT_FOUND") return;
       throw error;
     }
     if (!tracked) {
       await this.log({ correlationId: trackingKey, status: "SUCCESS", entity: "ORDER", operation: "UPDATE", direction: "WAYDATA_TO_CIGAM", message: `Status de entrega atualizado: ${result.status}.`, reference: { invoice: result.invoiceId, order: result.orderCode, route: String(result.routeCode) } });
     }
-    if (receipt) {
-      await this.log({ correlationId: receiptKey, status: "SUCCESS", entity: "RECEIPT", operation: "CREATE", direction: "WAYDATA_TO_CIGAM", message: "Canhoto anexado ao acompanhamento da NF.", reference: { invoice: result.invoiceId, order: result.orderCode, route: String(result.routeCode) } });
+    if (hasNewReceipt) {
+      await this.log({ correlationId: receiptKey, status: "SUCCESS", entity: "RECEIPT", operation: "CREATE", direction: "WAYDATA_TO_CIGAM", message: "Canhoto registrado no acompanhamento da NF.", reference: { invoice: result.invoiceId, order: result.orderCode, route: String(result.routeCode) } });
     }
   }
 
