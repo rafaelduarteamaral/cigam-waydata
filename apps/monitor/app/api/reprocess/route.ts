@@ -11,6 +11,8 @@ const bodySchema = z.object({
   correlationId: z.string().min(1),
   entity: integrationEntitySchema,
   reference: z.string().min(1),
+  routeCode: z.string().regex(/^\d+$/).optional(),
+  invoiceId: z.string().min(1).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -30,6 +32,8 @@ export async function POST(request: NextRequest) {
     originalCorrelationId: parsed.data.correlationId,
     entity: parsed.data.entity,
     reference: parsed.data.reference,
+    ...(parsed.data.routeCode ? { routeCode: parsed.data.routeCode } : {}),
+    ...(parsed.data.invoiceId ? { invoiceId: parsed.data.invoiceId } : {}),
     status: "PENDING" as const,
   };
   await store.requestReprocess(item);

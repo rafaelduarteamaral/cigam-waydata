@@ -5,6 +5,8 @@ import { JsonlStore } from "@cigam-waydata/file-logger";
 import { mapIntegraWayDeliveries, type CigamRoute } from "@cigam-waydata/shared";
 import { describe, expect, it, vi } from "vitest";
 import { IntegrationWorker } from "./worker";
+import { WayDataClient } from "@cigam-waydata/waydata-client";
+import { randomUUID } from "node:crypto";
 
 const route: CigamRoute = {
   id: "R1", company: "01", branch: "01", updatedAt: new Date().toISOString(), operation: "UPSERT",
@@ -13,6 +15,108 @@ const route: CigamRoute = {
 };
 
 describe("IntegrationWorker", () => {
+  it("rescans completed daily covers for late and additional receipt URLs, even if CIGAM listing fails", async () => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-daily-scan-")));
+    const url = "https://wayds.net/photo.png";
+    const otherUrl = "https://wayds.net/second.png";
+    let urls: string[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (address: string) => new Response(JSON.stringify(
+      address.includes("/capa?") ? [{ codigo: 5445535 }] : { codigo: 5445535, entregas: [{ codigoCliente: "008017", pedidos: [{
+        codigo: "41561-4227", nfe: 4227, status: { descricao: "Entregue" }, fotos: urls.map(url => ({ codigo: 0, url })),
+      }] }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const cigam = { usesReceiptLinks: true, listPendingRoutes: vi.fn().mockRejectedValue(new Error("CIGAM listing failed")),
+        recordInvoiceFollowUp: vi.fn().mockResolvedValue({}) };
+      const worker = new IntegrationWorker({ store, enabled: true, cigam: cigam as never,
+        wayData: new WayDataClient({ baseUrl: "https://wayds.net", token: "test", maxRetries: 0 }) });
+      await worker.runCycle();
+      expect(await store.readPendingReceiptRoutes()).toEqual(["5445535"]);
+      urls = [url];
+      await worker.runCycle();
+      expect(await store.readPendingReceiptRoutes()).toEqual([]);
+      urls = [url, otherUrl];
+      await worker.runCycle();
+      await worker.runCycle();
+      expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("/capa?"))).toHaveLength(4);
+      expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("/rota?"))).toHaveLength(4);
+      const receipts = cigam.recordInvoiceFollowUp.mock.calls.map(call => call[0]).filter(call => call.result.receiptUrl);
+      expect(receipts.map(call => call.result.receiptUrl)).toEqual([url, otherUrl]);
+      expect(receipts.every(call => call.invoiceId === "4227")).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each([false, true])("reprocesses an invoice receipt using the WayData route (legacy queue: %s)", async (legacy) => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-reprocess-receipt-")));
+    const correlationId = "DELIVERY:4227:41561-4227:NAO_INFORMADO";
+    await store.writeLog({ id: randomUUID(), timestamp: new Date().toISOString(), correlationId,
+      status: "SUCCESS", entity: "ORDER", operation: "READ", direction: "WAYDATA_TO_CIGAM", attempt: 1,
+      reference: { route: "5445535", invoice: "4227" }, message: "Status não informado sem canhoto" });
+    await store.requestReprocess({ id: randomUUID(), requestedAt: new Date().toISOString(), requestedBy: "test",
+      originalCorrelationId: correlationId, entity: "ORDER", reference: "4227", status: "PENDING",
+      ...(!legacy ? { routeCode: "5445535", invoiceId: "4227" } : {}) });
+    const cigam = { usesReceiptLinks: true, listPendingRoutes: vi.fn().mockResolvedValue([]),
+      getRoute: vi.fn(), recordInvoiceFollowUp: vi.fn().mockResolvedValue({}) };
+    const wayData = { listDeliveryResults: vi.fn().mockResolvedValue([]), getRoute: vi.fn().mockResolvedValue({ codigo: 5445535,
+      entregas: [{ codigoCliente: "008017", pedidos: [
+        { codigo: "41561-4227", nfe: 4227, status: { descricao: "Entregue" }, fotos: [{ codigo: 0, url: "https://wayds.net/new.png" }] },
+        { codigo: "41561-4234", nfe: 4234, status: { descricao: "Entregue" }, fotos: [{ codigo: 0, url: "https://wayds.net/other.png" }] },
+      ] }] }) };
+    await new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData as never }).runCycle();
+    expect(wayData.getRoute).toHaveBeenCalledWith("5445535");
+    expect(cigam.getRoute).not.toHaveBeenCalled();
+    expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledOnce();
+    expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: "4227" }));
+    expect((await store.readReprocessRequests())[0]?.status).toBe("DONE");
+    expect(await store.readPendingReceiptRoutes()).toEqual(["5445535"]);
+  });
+
+  it("continues with another NF when CIGAM rejects one receipt", async () => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-nf-failure-")));
+    const cigam = { usesReceiptLinks: true, listPendingRoutes: vi.fn().mockResolvedValue([]),
+      recordInvoiceFollowUp: vi.fn().mockImplementation(async ({ invoiceId }) => {
+        if (invoiceId === "1") throw new Error("NF indisponível");
+        return {};
+      }) };
+    const wayData = { listDeliveryResults: vi.fn().mockResolvedValue(["1", "2"].map(invoiceId => ({
+      routeCode: Number(invoiceId), invoiceId, orderCode: invoiceId, status: "ENTREGUE",
+      receiptUrl: `https://wayds.net/${invoiceId}.png`,
+    }))) };
+    await new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData as never }).runCycle();
+    expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledTimes(2);
+    expect(await store.readPendingReceiptRoutes()).toEqual(["1"]);
+    expect(await store.hasSuccessfulCorrelation("RECEIPT:2:https://wayds.net/2.png")).toBe(true);
+  });
+
+  it("scans the local day near midnight instead of the next UTC day", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-02T01:30:00Z"));
+    vi.stubEnv("TZ", "America/Sao_Paulo");
+    try {
+      const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-local-day-")));
+      const cigam = { listPendingRoutes: vi.fn().mockResolvedValue([]) };
+      const wayData = { listDeliveryResults: vi.fn().mockResolvedValue([]) };
+      await new IntegrationWorker({ store, enabled: true, deliveryLookbackDays: 1, cigam: cigam as never, wayData: wayData as never }).runCycle();
+      expect(wayData.listDeliveryResults).toHaveBeenCalledWith("2026-10-01", "2026-10-01", [], expect.any(Function));
+    } finally { vi.useRealTimers(); vi.unstubAllEnvs(); }
+  });
+
+  it("keeps an explicitly reprocessed route pending when its photo has not arrived", async () => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-reprocess-waiting-")));
+    const id = randomUUID();
+    await store.requestReprocess({ id, requestedAt: new Date().toISOString(), requestedBy: "test",
+      originalCorrelationId: "DELIVERY:4227:41561-4227:NAO_INFORMADO", entity: "ORDER", reference: "4227",
+      routeCode: "5445535", invoiceId: "4227", status: "PENDING" });
+    const cigam = { listPendingRoutes: vi.fn().mockResolvedValue([]), recordInvoiceFollowUp: vi.fn() };
+    const wayData = { listDeliveryResults: vi.fn().mockResolvedValue([]), getRoute: vi.fn().mockResolvedValue({ codigo: 5445535,
+      entregas: [{ pedidos: [{ codigo: "41561-4227", nfe: 4227, status: { descricao: "NaoInformado" }, fotos: [] }] }] }) };
+    await new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData as never }).runCycle();
+    expect(cigam.recordInvoiceFollowUp).not.toHaveBeenCalled();
+    expect(await store.readPendingReceiptRoutes()).toEqual(["5445535"]);
+    const events = await store.readLogs("0000-01-01", "9999-12-31");
+    expect(events.find(event => event.correlationId === `REPROCESS:${id}`)?.message).toContain("ainda indisponível");
+  });
+
   it("validates the client before creating and completing a route", async () => {
     const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-")));
     const cigam = { listPendingRoutes: vi.fn().mockResolvedValue([route]), updateIntegrationStatus: vi.fn().mockResolvedValue({}) };
@@ -190,7 +294,7 @@ describe("IntegrationWorker", () => {
     await run();
     expect(await store.readPendingReceiptRoutes()).toEqual(["9001"]);
     await run();
-    expect(wayData.listDeliveryResults).toHaveBeenLastCalledWith(expect.any(String), expect.any(String), ["9001"]);
+    expect(wayData.listDeliveryResults).toHaveBeenLastCalledWith(expect.any(String), expect.any(String), ["9001"], expect.any(Function));
     expect(await store.readPendingReceiptRoutes()).toEqual([]);
     const calls = cigam.recordInvoiceFollowUp.mock.calls.length;
     await run();

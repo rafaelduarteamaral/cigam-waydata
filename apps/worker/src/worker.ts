@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { CigamClient } from "@cigam-waydata/cigam-client";
 import { JsonlStore } from "@cigam-waydata/file-logger";
 import { classifyHttpError } from "@cigam-waydata/http-client";
-import { cigamRouteSchema, routingClientCodes, sanitizeValue, shouldCreateDeliveryFollowUp, uniqueRouteName, wayDataClientSchema, wayDataRoutingSchema, type CigamRoute, type DeliveryResult, type LogEvent, type WayDataClient as WayDataClientPayload } from "@cigam-waydata/shared";
+import { cigamRouteSchema, mapIntegraWayDeliveries, routingClientCodes, sanitizeValue, shouldCreateDeliveryFollowUp, toAsmxDate, uniqueRouteName, wayDataClientSchema, wayDataRoutingSchema, type CigamRoute, type DeliveryResult, type LogEvent, type ReprocessRequest, type WayDataClient as WayDataClientPayload } from "@cigam-waydata/shared";
 import { WayDataClient } from "@cigam-waydata/waydata-client";
 import type { AlertNotifier } from "@cigam-waydata/notifications";
 
@@ -37,6 +37,11 @@ export class IntegrationWorker {
         return;
       }
       if (this.dependencies.writeEnabled !== false) await this.processReprocessQueue();
+      if (this.dependencies.writeEnabled !== false) {
+        if (!this.dependencies.wayData) throw new Error("WayData não configurada para modo de escrita");
+        // Receipt arrival is independent of new/pending CIGAM shipments.
+        await this.processDeliveryReturns();
+      }
       const routes = await this.loadRoutes();
       if (this.dependencies.writeEnabled === false) {
         const known = await this.dependencies.store.successfulCorrelationIds("DISCOVERY:");
@@ -52,7 +57,6 @@ export class IntegrationWorker {
       }
       if (!this.dependencies.wayData) throw new Error("WayData não configurada para modo de escrita");
       await this.mapLimited(routes, (route) => this.processRoute(route));
-      await this.processDeliveryReturns();
       await this.log({ correlationId: cycleId, status: "SUCCESS", message: `Ciclo concluído: ${routes.length} rota(s) avaliadas.`, durationMs: Date.now() - startedAt.getTime() });
     } catch (error) {
       const classified = classifyHttpError(error);
@@ -243,7 +247,14 @@ export class IntegrationWorker {
     const to = new Date();
     const from = new Date(to.getTime() - (days - 1) * 86_400_000);
     const pending = new Set(await this.dependencies.store.readPendingReceiptRoutes());
-    const results = await this.dependencies.wayData!.listDeliveryResults(from.toISOString().slice(0, 10), to.toISOString().slice(0, 10), [...pending]);
+    // Always fetch every cover in the window, including routes already completed.
+    const results = await this.dependencies.wayData!.listDeliveryResults(toAsmxDate(from), toAsmxDate(to), [...pending], async (code, error) => {
+      pending.add(code);
+      const classified = classifyHttpError(error);
+      await this.log({ correlationId: `RECEIPT_SCAN:${code}`, status: "ERROR", entity: "ROUTE", operation: "READ",
+        direction: "WAYDATA_TO_CIGAM", message: classified.message, reference: { route: code },
+        ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
+    });
     const byRoute = new Map<string, DeliveryResult[]>();
     for (const result of results) {
       const code = String(result.routeCode);
@@ -253,7 +264,10 @@ export class IntegrationWorker {
     // Persist before contacting CIGAM so failures/restarts keep the retry scheduled.
     await this.dependencies.store.writePendingReceiptRoutes([...pending]);
     for (const [code, deliveries] of byRoute) {
-      await this.mapLimited(deliveries, (result) => this.processDelivery(result), Math.min(2, this.dependencies.concurrency ?? 4));
+      await this.mapLimited(deliveries, async (result) => {
+        // Each failure remains pending and must not block another NF or route.
+        await this.processDelivery(result).catch(() => undefined);
+      }, Math.min(2, this.dependencies.concurrency ?? 4));
       const completed = await Promise.all(deliveries.map(async (result) => Boolean(result.receiptUrl)
         && !result.receiptPending
         && await this.dependencies.store.hasSuccessfulCorrelation(`RECEIPT:${result.invoiceId}:${result.receiptId ?? result.receiptUrl}`)));
@@ -279,13 +293,13 @@ export class IntegrationWorker {
 
     let receipt: { filename: string; contentType: string; contentBase64: string } | undefined;
     const hasNewReceipt = Boolean(result.receiptUrl && !attached);
-    if (hasNewReceipt && !this.dependencies.cigam!.usesReceiptLinks) {
-      const downloaded = await this.dependencies.wayData!.downloadReceipt(result.receiptUrl!);
-      const extension = downloaded.contentType === "application/pdf" ? "pdf" : downloaded.contentType === "image/png" ? "png" : "jpg";
-      receipt = { filename: `canhoto-${result.invoiceId}.${extension}`, contentType: downloaded.contentType, contentBase64: Buffer.from(downloaded.bytes).toString("base64") };
-    }
-
     try {
+      if (hasNewReceipt && !this.dependencies.cigam!.usesReceiptLinks) {
+        const downloaded = await this.dependencies.wayData!.downloadReceipt(result.receiptUrl!);
+        const extension = downloaded.contentType === "application/pdf" ? "pdf" : downloaded.contentType === "image/png" ? "png" : "jpg";
+        receipt = { filename: `canhoto-${result.invoiceId}.${extension}`, contentType: downloaded.contentType, contentBase64: Buffer.from(downloaded.bytes).toString("base64") };
+      }
+
       await this.dependencies.cigam!.recordInvoiceFollowUp({ invoiceId: result.invoiceId, result, ...(receipt ? { receipt } : {}), idempotencyKey: hasNewReceipt ? receiptKey : trackingKey });
     } catch (error) {
       const classified = classifyHttpError(error);
@@ -305,18 +319,58 @@ export class IntegrationWorker {
     const pending = (await this.dependencies.store.readReprocessRequests()).filter((item) => item.status === "PENDING");
     for (const item of pending) {
       await this.dependencies.store.updateReprocess({ ...item, status: "PROCESSING" });
+      const deliveryReturn = Boolean(item.routeCode) || item.entity === "ORDER" || item.entity === "RECEIPT";
       try {
-        if (item.entity !== "ROUTE") throw new Error("Reprocessamento automático disponível somente para rotas neste contrato");
-        const route = cigamRouteSchema.parse(await this.dependencies.cigam!.getRoute(item.reference));
-        await this.processRoute(route);
+        let message = "Reprocessamento concluído.";
+        if (deliveryReturn) {
+          message = await this.reprocessReceipt(item);
+        } else if (item.entity === "ROUTE") {
+          const route = cigamRouteSchema.parse(await this.dependencies.cigam!.getRoute(item.reference));
+          await this.processRoute(route);
+        } else throw new Error("Reprocessamento disponível para rotas, pedidos e canhotos");
         await this.dependencies.store.updateReprocess({ ...item, status: "DONE" });
-        await this.log({ correlationId: `REPROCESS:${item.id}`, status: "SUCCESS", entity: item.entity, operation: "REPROCESS", message: "Reprocessamento concluído.", reference: { route: item.reference } });
+        await this.log({ correlationId: `REPROCESS:${item.id}`, status: "SUCCESS", entity: item.entity, operation: "REPROCESS", message,
+          direction: deliveryReturn ? "WAYDATA_TO_CIGAM" : "CIGAM_TO_WAYDATA",
+          reference: !deliveryReturn ? { route: item.reference } : { ...(item.entity !== "ROUTE" ? { invoice: item.invoiceId ?? item.reference } : {}), ...(item.routeCode ? { route: item.routeCode } : {}) } });
       } catch (error) {
         const classified = classifyHttpError(error);
         await this.dependencies.store.updateReprocess({ ...item, status: "ERROR" });
-        await this.log({ correlationId: `REPROCESS:${item.id}`, status: "ERROR", entity: item.entity, operation: "REPROCESS", message: classified.message, reference: { route: item.reference }, ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
+        await this.log({ correlationId: `REPROCESS:${item.id}`, status: "ERROR", entity: item.entity, operation: "REPROCESS", message: classified.message,
+          direction: deliveryReturn ? "WAYDATA_TO_CIGAM" : "CIGAM_TO_WAYDATA",
+          reference: !deliveryReturn ? { route: item.reference } : { ...(item.entity !== "ROUTE" ? { invoice: item.invoiceId ?? item.reference } : {}), ...(item.routeCode ? { route: item.routeCode } : {}) },
+          ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
       }
     }
+  }
+
+  private async reprocessReceipt(item: ReprocessRequest): Promise<string> {
+    let code = item.routeCode;
+    let invoice = item.invoiceId;
+    // Older monitor versions queued only the displayed reference; recover context.
+    if (!code || !invoice) {
+      const original = (await this.dependencies.store.readLogs("0000-01-01", "9999-12-31"))
+        .find((event) => event.correlationId === item.originalCorrelationId && event.direction === "WAYDATA_TO_CIGAM");
+      code ??= original?.reference.route;
+      invoice ??= original?.reference.invoice ?? (item.entity !== "ROUTE" ? item.reference : undefined);
+    }
+    if (!code || !/^\d+$/.test(code)) throw new Error("Código da rota WayData ausente para consultar o canhoto");
+    // Keep recovered legacy context in the queue and subsequent success/error logs.
+    item.routeCode = code;
+    if (invoice) item.invoiceId = invoice;
+    const pending = new Set(await this.dependencies.store.readPendingReceiptRoutes());
+    pending.add(code);
+    await this.dependencies.store.writePendingReceiptRoutes([...pending]);
+    const results = mapIntegraWayDeliveries(await this.dependencies.wayData!.getRoute(code))
+      .filter((result) => String(result.routeCode) === code && (invoice == null || result.invoiceId === invoice));
+    for (const result of results) {
+      await this.processDelivery(result);
+      if (result.receiptUrl && !(await this.dependencies.store.hasSuccessfulCorrelation(`RECEIPT:${result.invoiceId}:${result.receiptId ?? result.receiptUrl}`))) {
+        throw new Error("Canhoto ainda não registrado no CIGAM; rota mantida para nova tentativa");
+      }
+    }
+    return results.some((result) => result.receiptUrl)
+      ? "Canhotos consultados e registros no CIGAM verificados."
+      : "Canhoto ainda indisponível; rota mantida para verificação nos próximos ciclos.";
   }
 
   private async enqueueRetry(routeId: string, correlationId: string): Promise<void> {

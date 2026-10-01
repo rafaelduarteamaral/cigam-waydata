@@ -85,7 +85,11 @@ export function Dashboard({ initialEvents, initialHealth, today }: DashboardProp
       const response = await fetch(`${apiBase}/api/reprocess`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ correlationId: event.correlationId, entity: event.entity, reference: referenceOf(event) }),
+        body: JSON.stringify({ correlationId: event.correlationId, entity: event.entity,
+          reference: event.entity === "ROUTE" ? event.reference.route ?? referenceOf(event) : referenceOf(event),
+          ...(event.direction === "WAYDATA_TO_CIGAM" && event.reference.route ? { routeCode: event.reference.route } : {}),
+          ...(event.reference.invoice ? { invoiceId: event.reference.invoice } : {}),
+        }),
       });
       setNotice(response.ok ? `Reprocessamento solicitado para ${referenceOf(event)}.` : "Não foi possível solicitar o reprocessamento.");
     });

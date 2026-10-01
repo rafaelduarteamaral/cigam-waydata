@@ -4,6 +4,23 @@ import { WayDataClient } from "./index";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("WayDataClient", () => {
+  it("keeps scanning today's covers when an older pending route fails", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ codigo: 5445535 }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ codigo: 5445535, entregas: [{ pedidos: [{
+        codigo: "41561-4227", nfe: 4227, status: { descricao: "Entregue" },
+        fotos: [{ codigo: 0, url: "https://wayds.net/photo.png" }],
+      }] }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onError = vi.fn().mockResolvedValue(undefined);
+    const client = new WayDataClient({ baseUrl: "https://wayds.net", token: "secret", maxRetries: 0 });
+    await expect(client.listDeliveryResults("2026-10-01", "2026-10-01", ["9001"], onError))
+      .resolves.toMatchObject([{ invoiceId: "4227", receiptUrl: "https://wayds.net/photo.png" }]);
+    expect(onError).toHaveBeenCalledWith("9001", expect.objectContaining({ status: 404 }));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("uses codigo from production covers to fetch delivery details", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([{ codigo: 9001 }]), { status: 200 }))

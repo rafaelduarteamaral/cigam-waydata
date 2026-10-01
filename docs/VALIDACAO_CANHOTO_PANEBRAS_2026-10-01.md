@@ -42,3 +42,13 @@ Para usar outro arquivo de configuração, informe `ENV_FILE=/caminho/arquivo.en
 Na validação local, os 55 testes, a checagem de tipos de todos os pacotes e o build passaram. O build do monitor emitiu dois avisos de rastreamento de acesso dinâmico ao filesystem no pacote de logs.
 
 O envio real ao CIGAM está pendente porque `CIGAM_TOKEN` está vazio na configuração local. A implantação no servidor Panebras também não foi executada.
+
+## Canhotos que chegam depois e reprocessamento pelo monitor
+
+A cada ciclo de escrita, o worker consulta novamente todas as capas da janela de `DELIVERY_LOOKBACK_DAYS` (padrão: quatro dias, incluindo o dia atual). A janela usa a data local, conforme `TZ`, com padrão `America/Sao_Paulo`. Mesmo uma rota que já teve um canhoto registrado volta a ser consultada enquanto estiver nessa janela; uma nova URL gera um novo registro somente para a NF do pedido. Canhotos já registrados são omitidos pela idempotência.
+
+Rotas sem canhoto ou com falha de gravação continuam na lista persistente de pendências, inclusive fora da janela de datas. A consulta de canhotos ocorre antes da busca de novas cargas no CIGAM. Uma falha ao consultar uma rota WayData ou registrar uma NF não impede a verificação das demais.
+
+O botão Reprocessar agora envia o código da rota WayData e a NF para eventos de retorno. O worker consulta novamente essa rota e processa apenas a NF escolhida. Solicitações antigas de pedido/canhoto que continham apenas a referência exibida recuperam o contexto do evento original nos logs. Se a foto ainda não chegou, o monitor registra a indisponibilidade e a rota continua pendente para os próximos ciclos. Para eventos de rota enviados ao CIGAM, o botão usa o identificador da carga, mesmo quando o evento também contém uma NF.
+
+É necessário atualizar e reiniciar tanto o monitor quanto o worker no servidor para aplicar a correção do botão e da fila. O ciclo automático segue o intervalo configurado em `SYNC_INTERVAL_SECONDS` e requer `SYNC_MODE=write`.

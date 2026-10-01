@@ -78,6 +78,8 @@ export const reprocessRequestSchema = z.object({
   originalCorrelationId: z.string().min(1),
   entity: integrationEntitySchema,
   reference: z.string().min(1),
+  routeCode: z.string().regex(/^\d+$/).optional(),
+  invoiceId: z.string().min(1).optional(),
   status: z.enum(["PENDING", "PROCESSING", "DONE", "ERROR"]),
 });
 

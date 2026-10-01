@@ -173,7 +173,7 @@ export class WayDataClient {
       .filter((item) => nome == null || String(item.nome ?? item.Nome ?? "") === nome);
   }
 
-  async listDeliveryResults(dateFrom: string, dateTo: string, pendingRouteCodes: string[] = []): Promise<DeliveryResult[]> {
+  async listDeliveryResults(dateFrom: string, dateTo: string, pendingRouteCodes: string[] = [], onRouteError?: (code: string, error: unknown) => Promise<void>): Promise<DeliveryResult[]> {
     const covers = await this.listRouteCovers(dateFrom, dateTo);
     const codes = new Set<string>(pendingRouteCodes);
     for (const cover of covers) {
@@ -182,7 +182,14 @@ export class WayDataClient {
       codes.add(String(code));
     }
     const results: DeliveryResult[] = [];
-    for (const code of codes) results.push(...mapIntegraWayDeliveries(await this.getRoute(code)));
+    for (const code of codes) {
+      try {
+        results.push(...mapIntegraWayDeliveries(await this.getRoute(code)));
+      } catch (error) {
+        if (!onRouteError) throw error;
+        await onRouteError(code, error);
+      }
+    }
     return results;
   }
 
