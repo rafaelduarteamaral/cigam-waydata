@@ -51,16 +51,41 @@ describe("CIGAM / IntegraWay mapping", () => {
 
   it.each([
     ["Pendente", "https://example.com/photo.jpg", false],
-    [undefined, "https://example.com/photo.jpg", false],
+    [undefined, "https://example.com/photo.jpg", true],
     ["Realizado", "", false],
     ["Realizado", "https://example.com/photo.jpg", true],
-  ])("requires Realizado and a URL for a photo (%s, %s)", (statusMarcacao, url, ready) => {
+  ])("accepts published production photos and respects explicit marking status (%s, %s)", (statusMarcacao, url, ready) => {
     const [result] = mapIntegraWayDeliveries({ codigo: 9001, entregas: [{ pedidos: [{
       codigo: "P1", nfe: 123, status: { descricao: "Entregue" },
       fotos: [{ codigo: 88, statusMarcacao, url }],
     }] }] });
     expect(result?.receiptUrl).toBe(ready ? url : undefined);
     expect(result?.receiptPending).toBe(!ready);
+  });
+
+  it("maps Panebras photos to each NF and distinguishes photos with codigo zero", () => {
+    const url = "https://restrito.waydatasolution.com.br/proxyway/api/v1/proxy/foto?codigoFoto=29618247&estabelecimento=915";
+    const otherUrl = url.replace("29618247", "29618248");
+    const results = mapIntegraWayDeliveries({ codigo: 5445535, entregas: [{ codigoCliente: "008017", pedidos: [
+      { codigo: "41561-4227", nfe: 4227, tipoStatus: 0, status: { descricao: "Entregue" },
+        fotos: [{ codigo: 0, url }, { codigo: 0, url: otherUrl }, { codigo: 0, url }] },
+      { codigo: "41561", nfe: 449650, status: { descricao: "NaoInformado" }, fotos: [] },
+    ] }] });
+    expect(results).toHaveLength(3);
+    expect(results[0]).toMatchObject({ routeCode: "5445535", invoiceId: "4227", orderCode: "41561-4227",
+      companyCode: "008017", status: "ENTREGUE", receiptPending: false, receiptUrl: url, receiptId: url });
+    expect(results[1]).toMatchObject({ invoiceId: "4227", receiptId: otherUrl, receiptUrl: otherUrl });
+    expect(results[2]).toMatchObject({ invoiceId: "449650", receiptPending: true });
+    expect(results[2]?.receiptUrl).toBeUndefined();
+  });
+
+  it("keeps typed marking photos pending without Realizado", () => {
+    const [result] = mapIntegraWayDeliveries({ codigo: 9001, entregas: [{ pedidos: [{
+      codigo: "P1", nfe: 123, status: { descricao: "Entregue" },
+      Marcacao: { Fotos: [{ Tipo: { FormatoImagem: 3 }, Url: "https://example.com/photo.jpg" }] },
+    }] }] });
+    expect(result).toMatchObject({ receiptPending: true });
+    expect(result?.receiptUrl).toBeUndefined();
   });
 
   it("keeps a route pending when only some photos are ready", () => {

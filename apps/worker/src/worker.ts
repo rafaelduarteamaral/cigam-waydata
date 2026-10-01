@@ -262,7 +262,8 @@ export class IntegrationWorker {
     await this.dependencies.store.writePendingReceiptRoutes([...pending]);
   }
 
-  private async processDelivery(result: DeliveryResult): Promise<void> {
+  /** Processes one delivery, also used by scoped receipt validation outside a full cycle. */
+  async processDelivery(result: DeliveryResult): Promise<void> {
     if (!shouldCreateDeliveryFollowUp(result.status, Boolean(result.receiptUrl))) {
       const skipKey = `DELIVERY:${result.invoiceId}:${result.orderCode}:${result.status}`;
       if (!(await this.dependencies.store.hasSuccessfulCorrelation(skipKey))) {

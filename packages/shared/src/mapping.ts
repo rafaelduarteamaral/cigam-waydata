@@ -413,12 +413,15 @@ function invoiceIdsFrom(order: AsmxRecord): string[] {
   return ids;
 }
 
-function isReceiptReady(photo: AsmxRecord, order: AsmxRecord): boolean {
+function isReceiptReady(photo: AsmxRecord, order: AsmxRecord, productionDetail = false): boolean {
   const marking = asRecord(order.Marcacao) ?? asRecord(order.marcacao);
   const status = stringValue(photo.statusMarcacao ?? photo.StatusMarcacao
     ?? marking?.statusMarcacao ?? marking?.StatusMarcacao ?? order.statusMarcacao ?? order.StatusMarcacao);
   const url = photoUrl(photo);
-  return status?.trim().toLowerCase() === "realizado" && Boolean(url && /^https?:\/\//i.test(url));
+  // Production entregas[].pedidos[].fotos publishes the URL without statusMarcacao.
+  // An explicit marking status still takes precedence, including pending photos.
+  const ready = status != null ? status.trim().toLowerCase() === "realizado" : productionDetail && photoFormat(photo) == null;
+  return ready && Boolean(url && /^https?:\/\//i.test(url));
 }
 
 function receiptsFrom(node: AsmxRecord, allowUntypedPhotos = false): Array<{ receiptUrl: string; receiptId: string }> {
@@ -426,9 +429,10 @@ function receiptsFrom(node: AsmxRecord, allowUntypedPhotos = false): Array<{ rec
   const seen = new Set<string>();
   for (const photo of photosOf(node).filter((item) => photoFormat(item) === RECEIPT_IMAGE_FORMAT || (allowUntypedPhotos && photoFormat(item) == null))) {
     const url = photoUrl(photo);
-    if (!isReceiptReady(photo, node) || !url || seen.has(url)) continue;
+    if (!isReceiptReady(photo, node, allowUntypedPhotos) || !url || seen.has(url)) continue;
     seen.add(url);
-    receipts.push({ receiptUrl: url, receiptId: stringValue(photo.Id) ?? stringValue(photo.id) ?? stringValue(photo.codigo) ?? url });
+    const id = stringValue(photo.Id) ?? stringValue(photo.id) ?? stringValue(photo.codigo);
+    receipts.push({ receiptUrl: url, receiptId: id && id !== "0" ? id : url });
   }
   return receipts;
 }
@@ -450,7 +454,7 @@ function deliveriesFromOrder(route: AsmxRecord, order: AsmxRecord, productionDet
   const status = normalizeStatus(statusDetail?.descricao ?? order.TipoStatus ?? order.tipoStatus ?? order.status ?? order.situacao);
   const receipts = receiptsFrom(order, productionDetail);
   const candidates = photosOf(order).filter((photo) => photoFormat(photo) === RECEIPT_IMAGE_FORMAT || (productionDetail && photoFormat(photo) == null));
-  const receiptPending = receipts.length === 0 || candidates.some((photo) => !isReceiptReady(photo, order));
+  const receiptPending = receipts.length === 0 || candidates.some((photo) => !isReceiptReady(photo, order, productionDetail));
   const bases = invoiceIds.map((invoiceId) => ({
     routeCode,
     orderCode,

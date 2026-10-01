@@ -140,6 +140,31 @@ describe("IntegrationWorker", () => {
     expect(cigam.recordInvoiceFollowUp).toHaveBeenLastCalledWith({ invoiceId: "438694", result, idempotencyKey: "RECEIPT:438694:F1" });
   });
 
+  it("records published Panebras photos only for their NF and retries each zero-code photo once", async () => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-panebras-photo-")));
+    const cigam = { usesReceiptLinks: true, listPendingRoutes: vi.fn().mockResolvedValue([]),
+      recordInvoiceFollowUp: vi.fn().mockResolvedValue({}) };
+    const url = "https://restrito.waydatasolution.com.br/proxyway/api/v1/proxy/foto?codigoFoto=29618247&estabelecimento=915";
+    const otherUrl = url.replace("29618247", "29618248");
+    const results = mapIntegraWayDeliveries({ codigo: 5445535, entregas: [{ codigoCliente: "008017", pedidos: [
+      { codigo: "41561-4227", nfe: 4227, tipoStatus: 0, status: { descricao: "Entregue" },
+        fotos: [{ codigo: 0, url }, { codigo: 0, url: otherUrl }] },
+      { codigo: "41561", nfe: 449650, status: { descricao: "NaoInformado" }, fotos: [] },
+    ] }] });
+    const wayData = { listDeliveryResults: vi.fn().mockResolvedValue(results), downloadReceipt: vi.fn() };
+    const worker = new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData as never });
+    await worker.runCycle();
+    await worker.runCycle();
+    expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledTimes(2);
+    for (const receiptUrl of [url, otherUrl]) {
+      expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledWith(expect.objectContaining({
+        invoiceId: "4227", idempotencyKey: `RECEIPT:4227:${receiptUrl}`,
+        result: expect.objectContaining({ invoiceId: "4227", receiptUrl, companyCode: "008017" }),
+      }));
+    }
+    expect(wayData.downloadReceipt).not.toHaveBeenCalled();
+  });
+
   it("persists pending photos across restarts until Realizado, URL and CIGAM success", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "worker-pending-photo-"));
     const store = new JsonlStore(directory);
