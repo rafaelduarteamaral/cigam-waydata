@@ -5,7 +5,7 @@ import { integrationEntitySchema } from "@cigam-waydata/shared";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { isAuthorized, isSameOrigin } from "../security";
-import { requireMonitorSession } from "../../auth";
+import { isMonitorLoginEnabled, requireMonitorSession } from "../../auth";
 
 const bodySchema = z.object({
   correlationId: z.string().min(1),
@@ -19,7 +19,9 @@ export async function POST(request: NextRequest) {
   const denied = requireMonitorSession(request);
   if (denied) return denied;
   if (!isSameOrigin(request)) return NextResponse.json({ error: "Origem não permitida" }, { status: 403 });
-  if (!isAuthorized(request)) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  // The signed login session was already checked above. API keys are for clients
+  // using the monitor without its login; never expose them in browser JavaScript.
+  if (!isMonitorLoginEnabled() && !isAuthorized(request)) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
   const parsed = bodySchema.safeParse(body);

@@ -82,16 +82,22 @@ export function Dashboard({ initialEvents, initialHealth, today }: DashboardProp
 
   function reprocess(event: LogEvent) {
     startTransition(async () => {
-      const response = await fetch(`${apiBase}/api/reprocess`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ correlationId: event.correlationId, entity: event.entity,
-          reference: event.entity === "ROUTE" ? event.reference.route ?? referenceOf(event) : referenceOf(event),
-          ...(event.direction === "WAYDATA_TO_CIGAM" && event.reference.route ? { routeCode: event.reference.route } : {}),
-          ...(event.reference.invoice ? { invoiceId: event.reference.invoice } : {}),
-        }),
-      });
-      setNotice(response.ok ? `Reprocessamento solicitado para ${referenceOf(event)}.` : "Não foi possível solicitar o reprocessamento.");
+      try {
+        const response = await fetch(`${apiBase}/api/reprocess`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ correlationId: event.correlationId, entity: event.entity,
+            reference: event.entity === "ROUTE" ? event.reference.route ?? referenceOf(event) : referenceOf(event),
+            ...(event.direction === "WAYDATA_TO_CIGAM" && event.reference.route ? { routeCode: event.reference.route } : {}),
+            ...(event.reference.invoice ? { invoiceId: event.reference.invoice } : {}),
+          }),
+        });
+        const data = await response.json().catch(() => null) as { error?: string } | null;
+        setNotice(response.ok ? `Reprocessamento solicitado para ${referenceOf(event)}.`
+          : `Não foi possível solicitar o reprocessamento (HTTP ${response.status}): ${data?.error ?? "resposta inválida do servidor"}.`);
+      } catch {
+        setNotice("Não foi possível conectar ao servidor para solicitar o reprocessamento.");
+      }
     });
   }
 

@@ -122,6 +122,14 @@ powershell -ExecutionPolicy Bypass -File .\deploy\windows\publish-iis-monitor.ps
 
 O `web.config` reescreve para `http://127.0.0.1:3000/WayData/monitor/...`. A porta 3000 não deve ficar aberta na internet.
 
+O monitor aceita a origem HTTPS quando o ARR preserva o `Host` público. Caso o proxy reescreva esse cabeçalho, configure no `.env` da raiz e reinicie o serviço do monitor:
+
+```dotenv
+MONITOR_PUBLIC_ORIGIN=https://panebrasportais.cigam.cloud
+```
+
+Isso evita o HTTP 403 `Origem não permitida` no botão Reprocessar. A origem deve conter protocolo e domínio, sem `/WayData/monitor`. A sessão autenticada do monitor autoriza a solicitação; `MONITOR_API_KEY` não precisa ser enviado pelo navegador. Quando o login está desabilitado, a chave continua obrigatória se estiver configurada. Uma origem externa continua bloqueada.
+
 URL pública:
 
 **https://panebrasportais.cigam.cloud/WayData/monitor**
