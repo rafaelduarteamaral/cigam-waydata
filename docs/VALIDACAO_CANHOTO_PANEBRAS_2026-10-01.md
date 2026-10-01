@@ -1,6 +1,6 @@
 # Canhoto Panebras — 01/10/2026
 
-Validação com consultas GET e a credencial local, sem gravar acompanhamentos no CIGAM.
+Validação inicial com consultas GET e a credencial local. Posteriormente foi realizado o envio controlado do canhoto ao CIGAM, conforme registrado abaixo.
 
 ## Evidência da API
 
@@ -41,7 +41,19 @@ Para usar outro arquivo de configuração, informe `ENV_FILE=/caminho/arquivo.en
 
 Na validação local, os 55 testes, a checagem de tipos de todos os pacotes e o build passaram. O build do monitor emitiu dois avisos de rastreamento de acesso dinâmico ao filesystem no pacote de logs.
 
-O envio real ao CIGAM está pendente porque `CIGAM_TOKEN` está vazio na configuração local. A implantação no servidor Panebras também não foi executada.
+Na validação inicial, o envio ao CIGAM ficou pendente porque `CIGAM_TOKEN` estava vazio. A credencial foi fornecida posteriormente e o envio controlado foi concluído. A implantação no servidor Panebras não foi executada por esta sessão.
+
+## Envio real ao CIGAM
+
+Em 01/10/2026, foi executado o processamento de um único canhoto, limitado à rota WayData `5445535`, pedido `41561-4227`, NF `4227` e cliente `008017`. A URL da foto foi enviada em `acompanhamento.Anexos` e também no histórico, por `POST /Acompanhamento_Criar`.
+
+A API CIGAM retornou HTTP 200, com a mensagem em `d[0].mensagem`:
+
+```text
+SUCESSO: Acompanhamento gravado.
+```
+
+O worker registrou o sucesso nos logs locais, usando a mesma chave de idempotência do fluxo automático. O diretório de dados foi limitado ao workspace local, sem iniciar o ciclo geral e sem modificar as demais cargas. Esse registro local não aparece automaticamente no monitor do servidor Windows. A resposta confirma que a API aceitou o acompanhamento; a exibição do link/anexo no ERP não foi verificada.
 
 ## Canhotos que chegam depois e reprocessamento pelo monitor
 
