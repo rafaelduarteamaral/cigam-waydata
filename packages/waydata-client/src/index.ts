@@ -53,6 +53,8 @@ function parseRoutingResponse(raw: unknown, fallbackNome: string, status = 200):
 }
 
 export class WayDataClient {
+  readonly baseUrl: string;
+  lastDeliveryScan: { covers: number; routeCodes: string[]; results: number } | undefined;
   private readonly http: HttpClient;
   private readonly token: string;
   private readonly allowedReceiptHosts: Set<string>;
@@ -61,6 +63,7 @@ export class WayDataClient {
   private readonly downloadWaiters: Array<() => void> = [];
 
   constructor(options: { baseUrl: string; token: string; timeoutMs?: number; maxRetries?: number; allowedReceiptHosts?: string[]; maxConcurrentDownloads?: number }) {
+    this.baseUrl = options.baseUrl;
     this.http = new HttpClient(options);
     this.token = options.token;
     this.maxConcurrentDownloads = Math.max(1, options.maxConcurrentDownloads ?? 2);
@@ -174,6 +177,7 @@ export class WayDataClient {
   }
 
   async listDeliveryResults(dateFrom: string, dateTo: string, pendingRouteCodes: string[] = [], onRouteError?: (code: string, error: unknown) => Promise<void>): Promise<DeliveryResult[]> {
+    this.lastDeliveryScan = undefined;
     const covers = await this.listRouteCovers(dateFrom, dateTo);
     const codes = new Set<string>(pendingRouteCodes);
     for (const cover of covers) {
@@ -190,6 +194,7 @@ export class WayDataClient {
         await onRouteError(code, error);
       }
     }
+    this.lastDeliveryScan = { covers: covers.length, routeCodes: [...codes], results: results.length };
     return results;
   }
 

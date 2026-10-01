@@ -28,10 +28,11 @@ export class IntegrationWorker {
     if (this.running) return;
     this.running = true;
     const startedAt = new Date();
+    const receiptConfig = { receiptPollingVersion: "2", wayDataBaseUrl: this.dependencies.wayData?.baseUrl ?? null };
     const cycleId = `CYCLE:${randomUUID()}`;
     try {
       await this.dependencies.store.purgeExpired(this.dependencies.logRetentionDays ?? 180).catch(() => 0);
-      await this.dependencies.store.heartbeat({ status: "RUNNING", cycleId, startedAt: startedAt.toISOString(), lastSeenAt: new Date().toISOString(), syncEnabled: this.dependencies.enabled, syncMode: this.dependencies.writeEnabled === false ? "READ_ONLY" : this.dependencies.enabled ? "WRITE" : "DISABLED" });
+      await this.dependencies.store.heartbeat({ status: "RUNNING", cycleId, startedAt: startedAt.toISOString(), lastSeenAt: new Date().toISOString(), syncEnabled: this.dependencies.enabled, syncMode: this.dependencies.writeEnabled === false ? "READ_ONLY" : this.dependencies.enabled ? "WRITE" : "DISABLED", ...receiptConfig });
       if (!this.dependencies.enabled || !this.dependencies.cigam) {
         await this.log({ correlationId: cycleId, status: "SUCCESS", message: "Worker ativo em modo seguro; sincronização externa desabilitada.", durationMs: Date.now() - startedAt.getTime() });
         return;
@@ -62,7 +63,7 @@ export class IntegrationWorker {
       const classified = classifyHttpError(error);
       await this.log({ correlationId: cycleId, status: "ERROR", message: classified.message, durationMs: Date.now() - startedAt.getTime(), ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
     } finally {
-      await this.dependencies.store.heartbeat({ status: "IDLE", cycleId, lastCycleAt: startedAt.toISOString(), lastSeenAt: new Date().toISOString(), syncEnabled: this.dependencies.enabled, syncMode: this.dependencies.writeEnabled === false ? "READ_ONLY" : this.dependencies.enabled ? "WRITE" : "DISABLED" });
+      await this.dependencies.store.heartbeat({ status: "IDLE", cycleId, lastCycleAt: startedAt.toISOString(), lastSeenAt: new Date().toISOString(), syncEnabled: this.dependencies.enabled, syncMode: this.dependencies.writeEnabled === false ? "READ_ONLY" : this.dependencies.enabled ? "WRITE" : "DISABLED", ...receiptConfig });
       this.running = false;
     }
   }
@@ -255,6 +256,10 @@ export class IntegrationWorker {
         direction: "WAYDATA_TO_CIGAM", message: classified.message, reference: { route: code },
         ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
     });
+    const scan = this.dependencies.wayData!.lastDeliveryScan;
+    for (const code of scan?.routeCodes ?? []) pending.add(code);
+    await this.log({ correlationId: `RECEIPT_SCAN:${randomUUID()}`, status: "SUCCESS", entity: "SYSTEM", operation: "READ",
+      direction: "WAYDATA_TO_CIGAM", message: `Consulta de canhotos ${toAsmxDate(from)} a ${toAsmxDate(to)}: ${scan?.covers ?? "?"} capa(s), ${results.length} resultado(s), ${results.filter((result) => result.receiptUrl).length} canhoto(s) com URL. Origem: ${this.dependencies.wayData!.baseUrl ?? "não informada"}.` });
     const byRoute = new Map<string, DeliveryResult[]>();
     for (const result of results) {
       const code = String(result.routeCode);
@@ -300,6 +305,12 @@ export class IntegrationWorker {
         receipt = { filename: `canhoto-${result.invoiceId}.${extension}`, contentType: downloaded.contentType, contentBase64: Buffer.from(downloaded.bytes).toString("base64") };
       }
 
+      if (hasNewReceipt) {
+        // Separate key: successfully logging an attempt must never acknowledge the receipt.
+        await this.log({ correlationId: `RECEIPT_ATTEMPT:${receiptKey}`, status: "SUCCESS", entity: "RECEIPT", operation: "READ", direction: "WAYDATA_TO_CIGAM",
+          message: "Envio da URL do canhoto ao CIGAM iniciado.", reference: { invoice: result.invoiceId, order: result.orderCode, route: String(result.routeCode) },
+          ...(this.dependencies.cigam!.usesReceiptLinks ? { request: { method: "POST", endpoint: "/Acompanhamento_Criar" } } : {}) });
+      }
       await this.dependencies.cigam!.recordInvoiceFollowUp({ invoiceId: result.invoiceId, result, ...(receipt ? { receipt } : {}), idempotencyKey: hasNewReceipt ? receiptKey : trackingKey });
     } catch (error) {
       const classified = classifyHttpError(error);

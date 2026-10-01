@@ -6,6 +6,7 @@ import { mapIntegraWayDeliveries, type CigamRoute } from "@cigam-waydata/shared"
 import { describe, expect, it, vi } from "vitest";
 import { IntegrationWorker } from "./worker";
 import { WayDataClient } from "@cigam-waydata/waydata-client";
+import { CigamClient } from "@cigam-waydata/cigam-client";
 import { randomUUID } from "node:crypto";
 
 const route: CigamRoute = {
@@ -15,6 +16,45 @@ const route: CigamRoute = {
 };
 
 describe("IntegrationWorker", () => {
+  it("keeps a receipt pending after a CIGAM business error and logs the attempt before retrying successfully", async () => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-cigam-ack-")));
+    const response = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ d: [{ mensagem: "ERRO: NF não encontrada" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ d: [{ mensagem: "SUCESSO: Acompanhamento gravado." }] }), { status: 200 }));
+    vi.stubGlobal("fetch", response);
+    try {
+      const cigam = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "test", maxRetries: 0, asmx: { unit: "001" } });
+      vi.spyOn(cigam, "listPendingRoutes").mockResolvedValue([]);
+      const result = { routeCode: 5445535, invoiceId: "4227", orderCode: "41561-4227", companyCode: "008017",
+        status: "ENTREGUE", receiptUrl: "https://wayds.net/photo.png" };
+      const wayData = { baseUrl: "https://wayds.net", listDeliveryResults: vi.fn().mockResolvedValue([result]) };
+      const worker = new IntegrationWorker({ store, cigam, wayData: wayData as never, enabled: true });
+      const key = "RECEIPT:4227:https://wayds.net/photo.png";
+      await worker.runCycle();
+      expect(await store.hasSuccessfulCorrelation(key)).toBe(false);
+      expect(await store.readPendingReceiptRoutes()).toEqual(["5445535"]);
+      const attempts = (await store.readLogs("0000-01-01", "9999-12-31")).filter(x => x.correlationId === key);
+      expect(attempts.map(x => x.status)).toEqual(["ERROR"]);
+      expect(await store.hasSuccessfulCorrelation(`RECEIPT_ATTEMPT:${key}`)).toBe(true);
+      await worker.runCycle();
+      await worker.runCycle();
+      expect(await store.hasSuccessfulCorrelation(key)).toBe(true);
+      expect(await store.readPendingReceiptRoutes()).toEqual([]);
+      expect(response).toHaveBeenCalledTimes(2);
+      expect(await store.readHealth()).toMatchObject({ receiptPollingVersion: "2", wayDataBaseUrl: "https://wayds.net" });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("retains discovered covers with no orders so late orders can be checked outside the date window", async () => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-empty-cover-")));
+    const wayData = { baseUrl: "https://wayds.net", lastDeliveryScan: { covers: 1, routeCodes: ["5445535"], results: 0 },
+      listDeliveryResults: vi.fn().mockResolvedValue([]) };
+    const cigam = { listPendingRoutes: vi.fn().mockResolvedValue([]) };
+    await new IntegrationWorker({ store, cigam: cigam as never, wayData: wayData as never, enabled: true }).runCycle();
+    expect(await store.readPendingReceiptRoutes()).toEqual(["5445535"]);
+    expect((await store.readLogs("0000-01-01", "9999-12-31")).some(x => x.message.includes("1 capa(s), 0 resultado(s)"))).toBe(true);
+  });
+
   it("rescans completed daily covers for late and additional receipt URLs, even if CIGAM listing fails", async () => {
     const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-daily-scan-")));
     const url = "https://wayds.net/photo.png";

@@ -356,6 +356,13 @@ export class CigamClient {
         method: "POST",
         headers: { "Idempotency-Key": input.idempotencyKey },
         body: JSON.stringify({ acompanhamento }),
+      }).then((response) => {
+        const rows = unwrapAsmx(response);
+        const messages = rows.map((row) => String(row.mensagem ?? "").trim());
+        if (!messages.length || messages.some((message) => !/^(SUCESSO\b|ok$)/i.test(message))) {
+          throw new Error(`CIGAM não confirmou a gravação do acompanhamento: ${messages.filter(Boolean).join("; ") || "resposta sem mensagem de sucesso"}`);
+        }
+        return response;
       });
     }
     const tracking = this.http.request(at(this.paths.tracking, input.invoiceId), {

@@ -46,6 +46,21 @@ describe("CigamClient ASMX", () => {
     ]);
   });
 
+  it.each([
+    [{ d: [{ mensagem: "SUCESSO: Acompanhamento gravado." }] }, true],
+    [{ d: [{ mensagem: "ok" }] }, true],
+    [{ d: [{ mensagem: "ERRO: Nota fiscal não encontrada." }] }, false],
+    [{ d: [] }, false],
+    [{ d: [{ mensagem: null }] }, false],
+  ])("validates the business acknowledgement even when Acompanhamento_Criar returns HTTP 200", async (response, accepted) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 200 })));
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "test", asmx: { unit: "001" } });
+    const promise = client.recordInvoiceFollowUp({ invoiceId: "4227", result: { routeCode: 5445535, orderCode: "41561-4227",
+      invoiceId: "4227", companyCode: "008017", status: "ENTREGUE", receiptUrl: "https://wayds.net/photo.png" }, idempotencyKey: "receipt" });
+    if (accepted) await expect(promise).resolves.toEqual(response);
+    else await expect(promise).rejects.toThrow("CIGAM não confirmou");
+  });
+
   it("loads Cargas_BuscarDetalhes, Empresas, MudaSituacao and Acompanhamento_Criar", async () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
       if (String(url).endsWith("/Cargas_BuscarDetalhes")) {

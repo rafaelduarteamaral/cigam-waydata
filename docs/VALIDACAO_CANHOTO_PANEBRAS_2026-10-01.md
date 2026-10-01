@@ -64,3 +64,13 @@ Rotas sem canhoto ou com falha de gravação continuam na lista persistente de p
 O botão Reprocessar agora envia o código da rota WayData e a NF para eventos de retorno. O worker consulta novamente essa rota e processa apenas a NF escolhida. Solicitações antigas de pedido/canhoto que continham apenas a referência exibida recuperam o contexto do evento original nos logs. Se a foto ainda não chegou, o monitor registra a indisponibilidade e a rota continua pendente para os próximos ciclos. Para eventos de rota enviados ao CIGAM, o botão usa o identificador da carga, mesmo quando o evento também contém uma NF.
 
 É necessário atualizar e reiniciar tanto o monitor quanto o worker no servidor para aplicar a correção do botão e da fila. O ciclo automático segue o intervalo configurado em `SYNC_INTERVAL_SECONDS` e requer `SYNC_MODE=write`.
+
+## Diagnóstico do fluxo completo e confirmação de gravação
+
+A leitura real de todas as capas de produção de 01/10/2026 retornou 184 rotas, 699 resultados de pedidos e um canhoto com URL: rota `5445535`, NF `4227`. Todas as consultas de detalhes terminaram sem erro. Assim, o cliente atualizado descobre esse canhoto pelo fluxo normal de capa e detalhes, sem depender da consulta da carga no CIGAM.
+
+O cliente CIGAM passou a validar a mensagem de negócio de `Acompanhamento_Criar`: a resposta precisa conter `SUCESSO` ou `ok` em todas as mensagens. Um HTTP 200 com erro, sem mensagem ou sem registros agora gera falha e mantém o canhoto pendente para os próximos ciclos. Testes reproduzem rejeição seguida de aceitação e confirmam que a terceira consulta não repete o envio.
+
+Cada ciclo registra um resumo `Consulta de canhotos`, com a janela de datas, quantidade de capas, resultados, URLs disponíveis e a origem consultada, inclusive quando a consulta vem vazia. Rotas descobertas sem pedidos também ficam persistidas para consultas futuras. Cada envio gera um evento de consulta com correlação `RECEIPT_ATTEMPT:...`; esse evento registra somente o início da tentativa e não é a confirmação da gravação. A confirmação continua sendo o evento de criação `RECEIPT:...`, após a resposta aceita do CIGAM.
+
+O `/api/health` do monitor passa a exibir no objeto `worker` os campos `receiptPollingVersion=2` e `wayDataBaseUrl`. Depois de atualizar e reiniciar o worker no servidor, a origem carregada deve ser `https://restrito.waydatasolution.com.br/integraway/api/v1`. Esses campos permitem verificar o processo em execução em vez de inferir sua configuração pelos arquivos.
