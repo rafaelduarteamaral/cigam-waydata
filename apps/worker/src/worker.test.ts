@@ -16,6 +16,41 @@ const route: CigamRoute = {
 };
 
 describe("IntegrationWorker", () => {
+  it.each(["new", "recorded", "missing", "rejected"])("reprocesses an integrated shipment's execution route and all NFs (%s receipt)", async (state) => {
+    const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-shipment-receipts-")));
+    const correlationId = "ROUTE:PANEBRAS:41561";
+    const id = randomUUID();
+    await store.writeLog({ id: randomUUID(), timestamp: new Date().toISOString(), correlationId,
+      status: "SUCCESS", entity: "ROUTE", operation: "CREATE", direction: "CIGAM_TO_WAYDATA", attempt: 1,
+      reference: { route: "41561", invoice: "449650" }, message: "Rota sincronizada" });
+    await store.requestReprocess({ id, requestedAt: new Date().toISOString(), requestedBy: "test",
+      originalCorrelationId: correlationId, entity: "ROUTE", reference: "41561", invoiceId: "449650", status: "PENDING" });
+    const url = "https://wayds.net/4227.png";
+    if (state === "recorded") {
+      for (const key of [`RECEIPT:4227:${url}`, "DELIVERY:4227:41561-4227:ENTREGUE"]) {
+        await store.writeLog({ id: randomUUID(), timestamp: new Date().toISOString(), correlationId: key,
+          status: "SUCCESS", entity: "RECEIPT", operation: "CREATE", direction: "WAYDATA_TO_CIGAM", attempt: 1,
+          reference: { invoice: "4227", route: "5445535" }, message: "Registrado" });
+      }
+    }
+    const cigam = { usesReceiptLinks: true, listPendingRoutes: vi.fn().mockResolvedValue([]), getRoute: vi.fn(),
+      recordInvoiceFollowUp: state === "rejected" ? vi.fn().mockRejectedValue(new Error("CIGAM não confirmou o acompanhamento")) : vi.fn().mockResolvedValue({}) };
+    const wayData = { listDeliveryResults: vi.fn().mockResolvedValue([]),
+      listRouteCovers: vi.fn().mockResolvedValue([{ codigo: 5445535, nome: "41561-1001" }, { codigo: 5445996, nome: "1347610-1001" }]),
+      getRoute: vi.fn().mockResolvedValue({ codigo: 5445535, entregas: [{ codigoCliente: "008017", pedidos: [
+        { codigo: "41561-449650", nfe: 449650, fotos: [] },
+        { codigo: "41561-4227", nfe: 4227, status: { descricao: state === "missing" ? "NaoInformado" : "Entregue" }, fotos: state === "missing" ? [] : [{ codigo: 0, url }] },
+      ] }] }) };
+    await new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData as never }).runCycle();
+    expect(cigam.getRoute).not.toHaveBeenCalled();
+    expect(wayData.getRoute).toHaveBeenCalledExactlyOnceWith("5445535");
+    expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledTimes(state === "missing" || state === "recorded" ? 0 : 1);
+    if (state === "new" || state === "rejected") expect(cigam.recordInvoiceFollowUp).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: "4227" }));
+    expect((await store.readReprocessRequests())[0]?.status).toBe(state === "rejected" ? "ERROR" : "DONE");
+    const event = (await store.readLogs("0000-01-01", "9999-12-31")).find(x => x.correlationId === `REPROCESS:${id}`);
+    expect(event?.message).toContain(state === "rejected" ? "não confirmou" : state === "missing" ? "ainda indisponível" : "registros no CIGAM verificados");
+  });
+
   it("keeps a receipt pending after a CIGAM business error and logs the attempt before retrying successfully", async () => {
     const store = new JsonlStore(await mkdtemp(path.join(os.tmpdir(), "worker-cigam-ack-")));
     const response = vi.fn()

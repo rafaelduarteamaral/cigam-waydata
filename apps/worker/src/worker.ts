@@ -336,8 +336,16 @@ export class IntegrationWorker {
         if (deliveryReturn) {
           message = await this.reprocessReceipt(item);
         } else if (item.entity === "ROUTE") {
-          const route = cigamRouteSchema.parse(await this.dependencies.cigam!.getRoute(item.reference));
-          await this.processRoute(route);
+          const original = (await this.dependencies.store.readLogs("0000-01-01", "9999-12-31"))
+            .find(event => event.correlationId === item.originalCorrelationId && event.status === "SUCCESS" && event.direction === "CIGAM_TO_WAYDATA");
+          if (original) {
+            // An integrated shipment may no longer exist under its original CIGAM ID.
+            // Resolve the execution route from covers, never from CodigoRoteirizacao.
+            message = await this.reprocessShipmentReceipts(item, original.timestamp);
+          } else {
+            const route = cigamRouteSchema.parse(await this.dependencies.cigam!.getRoute(item.reference));
+            await this.processRoute(route);
+          }
         } else throw new Error("Reprocessamento disponível para rotas, pedidos e canhotos");
         await this.dependencies.store.updateReprocess({ ...item, status: "DONE" });
         await this.log({ correlationId: `REPROCESS:${item.id}`, status: "SUCCESS", entity: item.entity, operation: "REPROCESS", message,
@@ -352,6 +360,36 @@ export class IntegrationWorker {
           ...(classified.httpStatus != null ? { httpStatus: classified.httpStatus } : {}), errorCode: classified.kind });
       }
     }
+  }
+
+  private async reprocessShipmentReceipts(item: ReprocessRequest, originalTimestamp: string): Promise<string> {
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(from.getDate() - Math.max(1, this.dependencies.deliveryLookbackDays ?? 4) + 1);
+    const originalDay = toAsmxDate(new Date(originalTimestamp));
+    const covers = await this.dependencies.wayData!.listRouteCovers(toAsmxDate(from), toAsmxDate(today));
+    if (originalDay < toAsmxDate(from)) {
+      covers.push(...await this.dependencies.wayData!.listRouteCovers(originalDay, originalDay));
+    }
+    const codes = new Set<string>();
+    for (const cover of covers) {
+      const name = String(cover.nome ?? cover.Nome ?? "");
+      if (name !== item.reference && !name.startsWith(`${item.reference}-`)) continue;
+      const code = Number(cover.codigorota ?? cover.codigoRota ?? cover.CodigoRota ?? cover.codigo);
+      if (!Number.isSafeInteger(code) || code <= 0) throw new Error("Capa WayData sem CodigoRota válido");
+      codes.add(String(code));
+    }
+    if (!codes.size) throw new Error(`Rota de execução WayData não encontrada para a carga ${item.reference}; canhotos não verificados`);
+    const messages: string[] = [];
+    let failure: unknown;
+    for (const code of codes) {
+      // A shipment contains multiple NFs; the export log's first invoice is not a filter.
+      try {
+        messages.push(await this.reprocessReceipt({ ...item, routeCode: code, invoiceId: undefined }));
+      } catch (error) { failure ??= error; }
+    }
+    if (failure) throw failure;
+    return `Carga ${item.reference}: ${codes.size} rota(s) WayData consultada(s). ${[...new Set(messages)].join(" ")}`;
   }
 
   private async reprocessReceipt(item: ReprocessRequest): Promise<string> {
@@ -373,12 +411,16 @@ export class IntegrationWorker {
     await this.dependencies.store.writePendingReceiptRoutes([...pending]);
     const results = mapIntegraWayDeliveries(await this.dependencies.wayData!.getRoute(code))
       .filter((result) => String(result.routeCode) === code && (invoice == null || result.invoiceId === invoice));
+    let failure: unknown;
     for (const result of results) {
-      await this.processDelivery(result);
-      if (result.receiptUrl && !(await this.dependencies.store.hasSuccessfulCorrelation(`RECEIPT:${result.invoiceId}:${result.receiptId ?? result.receiptUrl}`))) {
-        throw new Error("Canhoto ainda não registrado no CIGAM; rota mantida para nova tentativa");
-      }
+      try {
+        await this.processDelivery(result);
+        if (result.receiptUrl && !(await this.dependencies.store.hasSuccessfulCorrelation(`RECEIPT:${result.invoiceId}:${result.receiptId ?? result.receiptUrl}`))) {
+          throw new Error("Canhoto ainda não registrado no CIGAM; rota mantida para nova tentativa");
+        }
+      } catch (error) { failure ??= error; }
     }
+    if (failure) throw failure;
     return results.some((result) => result.receiptUrl)
       ? "Canhotos consultados e registros no CIGAM verificados."
       : "Canhoto ainda indisponível; rota mantida para verificação nos próximos ciclos.";

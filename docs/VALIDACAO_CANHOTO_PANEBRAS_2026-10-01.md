@@ -74,3 +74,23 @@ O cliente CIGAM passou a validar a mensagem de negócio de `Acompanhamento_Criar
 Cada ciclo registra um resumo `Consulta de canhotos`, com a janela de datas, quantidade de capas, resultados, URLs disponíveis e a origem consultada, inclusive quando a consulta vem vazia. Rotas descobertas sem pedidos também ficam persistidas para consultas futuras. Cada envio gera um evento de consulta com correlação `RECEIPT_ATTEMPT:...`; esse evento registra somente o início da tentativa e não é a confirmação da gravação. A confirmação continua sendo o evento de criação `RECEIPT:...`, após a resposta aceita do CIGAM.
 
 O `/api/health` do monitor passa a exibir no objeto `worker` os campos `receiptPollingVersion=2` e `wayDataBaseUrl`. Depois de atualizar e reiniciar o worker no servidor, a origem carregada deve ser `https://restrito.waydatasolution.com.br/integraway/api/v1`. Esses campos permitem verificar o processo em execução em vez de inferir sua configuração pelos arquivos.
+# Reprocessamento de carga integrada — 02/10/2026
+
+O botão de uma carga já integrada executava somente o fluxo CIGAM → WayData,
+sem consultar os canhotos. Agora, quando existe sucesso anterior da integração,
+o worker procura as capas pelo nome da carga (`41561-...`), consulta o código de
+execução (`5445535`) e verifica os acompanhamentos de todas as NFs dessa rota.
+O código de roteirização `1347610` e a primeira NF do evento de exportação não
+são usados como código de execução ou filtro de NF. A data do evento original
+também é consultada quando está fora da janela recente.
+
+URLs novas passam por `Acompanhamento_Criar`; confirmações já registradas são
+respeitadas para evitar duplicidades. Sem foto, a rota fica pendente. Uma rejeição
+do CIGAM deixa o reprocessamento em erro, sem impedir a tentativa das demais NFs.
+
+Após atualizar e compilar o backend no servidor, reprocessar o evento de sucesso
+da carga 41561. Uma URL nova deve gerar `Envio da URL do canhoto ao CIGAM iniciado.`
+e depois `Canhoto registrado no acompanhamento da NF.` para a NF 4227, direção
+`WAYDATA_TO_CIGAM`. Se já houver confirmação, o resumo do reprocessamento informa
+que os registros foram verificados, sem repetir o POST. O simples sucesso no
+reprocessamento de exportação de uma versão anterior não comprova envio do canhoto.
