@@ -79,6 +79,33 @@ describe("CIGAM / IntegraWay mapping", () => {
     expect(results[2]?.receiptUrl).toBeUndefined();
   });
 
+  it("accepts a delivered order photo when only the stop marking is still pending (route 5473776)", () => {
+    const url = "https://restrito.waydatasolution.com.br/proxyway/api/v1/proxy/foto?codigoFoto=29846778&estabelecimento=915";
+    const results = mapIntegraWayDeliveries([{ codigo: 5473776, status: "AguardandoAbertura", entregas: [
+      { codigo: 0, codigoCliente: "001", pedidos: [], statusMarcacao: "Pendente" },
+      { codigo: 52877626, codigoCliente: "001524", statusMarcacao: "Pendente", pedidos: [
+        { codigo: "42352", nfe: 452229, tipoStatus: 0,
+          status: { data: "2026-10-13T11:39:48.84", descricao: "Entregue", motivo: "Realizado", recebedor: { nomeCompleto: "Teste", rgcpf: "00000" } },
+          fotos: [{ codigo: 0, url, descricao: "5473776/S94508-TF2452V52877626P42352-2026-10-13T14-39-44.888Z.png" }] },
+        { codigo: "42352-452230", nfe: 452230, tipoStatus: 0, status: { descricao: "NaoInformado" }, fotos: [] },
+      ] },
+    ] }]);
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({ routeCode: "5473776", orderCode: "42352", invoiceId: "452229", companyCode: "001524",
+      status: "ENTREGUE", occurredAt: "2026-10-13T11:39:48", receiptPending: false, receiptUrl: url, receiptId: url });
+    expect(results[1]).toMatchObject({ invoiceId: "452230", status: "NAO_INFORMADO", receiptPending: true });
+    expect(results[1]?.receiptUrl).toBeUndefined();
+  });
+
+  it("still inherits a pending stop marking for orders without their own status", () => {
+    const [result] = mapIntegraWayDeliveries({ codigo: 9001, entregas: [{ statusMarcacao: "Pendente", pedidos: [{
+      codigo: "P1", nfe: 123, status: { descricao: "NaoInformado" },
+      fotos: [{ codigo: 0, url: "https://example.com/photo.jpg" }],
+    }] }] });
+    expect(result).toMatchObject({ receiptPending: true });
+    expect(result?.receiptUrl).toBeUndefined();
+  });
+
   it("keeps typed marking photos pending without Realizado", () => {
     const [result] = mapIntegraWayDeliveries({ codigo: 9001, entregas: [{ pedidos: [{
       codigo: "P1", nfe: 123, status: { descricao: "Entregue" },

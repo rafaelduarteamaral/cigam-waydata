@@ -14,3 +14,6 @@ data/runtime/*.json
 !data/**/.gitkeep
 deploy/windows/*.exe
 deploy/windows/logs/
+
+# credenciais locais salvas sem o ponto
+env

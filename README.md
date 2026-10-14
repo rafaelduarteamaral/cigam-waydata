@@ -93,6 +93,7 @@ pnpm build
 - [Implementação](docs/IMPLEMENTACAO_CIGAM_WAYDATA.md)
 - [Pendências](docs/PENDENCIAS_CIGAM_WAYDATA.md)
 - [Homologação e go-live](docs/HOMOLOGACAO_GOLIVE.md)
+- [Validação de canhoto 14/10/2026 (parada pendente, pedido entregue)](docs/VALIDACAO_CANHOTO_PANEBRAS_2026-10-14.md)
 - [Produção no IIS (Windows)](docs/IIS_WINDOWS.md)
 
 ## Segurança
@@ -134,4 +135,4 @@ No CIGAM ASMX, `POST /Acompanhamento_Criar` recebe `Anexos` com a URL do canhoto
 
 Validação local usa respostas simuladas. A homologação em produção ainda depende de um retorno real da capa e dos detalhes da rota.
 
-Canhotos: a foto só é enviada quando `statusMarcacao` é `Realizado` e `url` contém um link HTTP(S). Fotos pendentes, sem status ou sem URL continuam sendo consultadas a cada ciclo. O status da entrega pode ser registrado antes, sem encerrar a busca do canhoto. As rotas descobertas com pendências ficam em `data/runtime/pending-receipt-routes.json`, sobrevivem a reinícios e são consultadas pelo código mesmo fora da janela de quatro dias da capa. A pendência só é removida após todas as fotos elegíveis estarem prontas e os respectivos links serem aceitos pelo CIGAM.
+Canhotos: a foto só é enviada quando `statusMarcacao` é `Realizado` e `url` contém um link HTTP(S). Em `entregas[].pedidos[].fotos`, fotos sem tipo e sem `statusMarcacao` são aceitas pela URL; o `statusMarcacao` da parada só é herdado por pedidos sem status próprio, então um pedido `Entregue` com foto é aceito mesmo com a parada `Pendente` (14/10/2026). Fotos pendentes, sem status ou sem URL continuam sendo consultadas a cada ciclo. O status da entrega pode ser registrado antes, sem encerrar a busca do canhoto. As rotas descobertas com pendências ficam em `data/runtime/pending-receipt-routes.json`, sobrevivem a reinícios e são consultadas pelo código mesmo fora da janela de quatro dias da capa. A pendência só é removida após todas as fotos elegíveis estarem prontas e os respectivos links serem aceitos pelo CIGAM.

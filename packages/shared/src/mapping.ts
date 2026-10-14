@@ -413,6 +413,13 @@ function invoiceIdsFrom(order: AsmxRecord): string[] {
   return ids;
 }
 
+// An order with its own status detail (descricao, data) was marked individually; a stop still "Pendente" must not hide its photo.
+function orderMarked(order: AsmxRecord): boolean {
+  const detail = asRecord(order.status);
+  if (!detail) return false;
+  return normalizeStatus(detail.descricao) !== "NAO_INFORMADO" || stringValue(detail.data) != null;
+}
+
 function isReceiptReady(photo: AsmxRecord, order: AsmxRecord, productionDetail = false): boolean {
   const marking = asRecord(order.Marcacao) ?? asRecord(order.marcacao);
   const status = stringValue(photo.statusMarcacao ?? photo.StatusMarcacao
@@ -486,7 +493,8 @@ export function mapIntegraWayDeliveries(raw: unknown): DeliveryResult[] {
         results.push(...deliveriesFromOrder(route, {
           ...order,
           codigoCliente: order.codigoCliente ?? delivery.codigoCliente,
-          statusMarcacao: order.statusMarcacao ?? order.StatusMarcacao ?? delivery.statusMarcacao ?? delivery.StatusMarcacao,
+          // The stop marking (entregas[].statusMarcacao) only applies to orders that WayData has not marked themselves.
+          statusMarcacao: order.statusMarcacao ?? order.StatusMarcacao ?? (orderMarked(order) ? undefined : delivery.statusMarcacao ?? delivery.StatusMarcacao),
         }, true));
       }
     }
