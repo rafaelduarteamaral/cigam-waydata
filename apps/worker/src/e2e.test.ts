@@ -77,7 +77,7 @@ describe("client-like end-to-end homologation", () => {
     expect(cigamCalls.find((call) => call.url === "/notas-fiscais/NF-500/anexos")?.body).toMatchObject({ filename: "canhoto-NF-500.pdf", contentType: "application/pdf" });
     expect(wayDataCalls.every((call) => call.authorization === "Bearer waydata-secret")).toBe(true);
     expect(cigamCalls.every((call) => call.authorization === "Bearer cigam-secret")).toBe(true);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
     const logs = await store.readLogs(today, today);
     expect(logs.some((event) => event.entity === "RECEIPT" && event.status === "SUCCESS")).toBe(true);
     expect(JSON.stringify(logs)).not.toContain("waydata-secret");

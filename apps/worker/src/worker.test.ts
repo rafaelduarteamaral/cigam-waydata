@@ -222,7 +222,7 @@ describe("IntegrationWorker", () => {
     const worker = new IntegrationWorker({ store, enabled: true, writeEnabled: false, cigam: cigam as never });
     await worker.runCycle();
     await worker.runCycle();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
     const logs = await store.readLogs(today, today);
     expect(logs.filter((event) => event.correlationId === "DISCOVERY:01:R1")).toHaveLength(1);
   });
@@ -234,7 +234,7 @@ describe("IntegrationWorker", () => {
     await new IntegrationWorker({ store, enabled: true, writeEnabled: false, routeAllowlist: ["38484"], cigam: cigam as never }).runCycle();
     expect(cigam.getRoute).toHaveBeenCalledWith("38484");
     expect(cigam.listPendingRoutes).not.toHaveBeenCalled();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
     await expect(store.readLogs(today, today)).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ correlationId: "DISCOVERY:01:38484", status: "SUCCESS" }),
     ]));
@@ -250,7 +250,7 @@ describe("IntegrationWorker", () => {
     };
     await new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData400 as never }).runCycle();
     expect(await store.readReprocessRequests()).toHaveLength(0);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
     await expect(store.readLogs(today, today)).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({
         correlationId: "ROUTE:01:R1",
@@ -296,7 +296,7 @@ describe("IntegrationWorker", () => {
     };
     await new IntegrationWorker({ store, enabled: true, cigam: cigam as never, wayData: wayData as never }).runCycle();
     expect(cigam.updateIntegrationStatus).toHaveBeenCalledWith("R1", expect.objectContaining({ status: "INTEGRATED", externalCode: 1277542 }));
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
     const logs = await store.readLogs(today, today);
     expect(logs.some((event) => event.correlationId === "ROUTE:01:R1" && event.status === "SUCCESS" && event.httpStatus === 405)).toBe(true);
   });

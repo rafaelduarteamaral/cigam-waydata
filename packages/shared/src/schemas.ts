@@ -195,8 +195,13 @@ export const wayDataRoutingSchema = z.object({
       z.object({
         placa: z.string().optional(),
         codigoMotorista: z.number().int().optional(),
+        cpfMotorista: z.string().regex(/^\d{11}$/, "cpfMotorista deve ter 11 dígitos").optional(),
+        nomeMotorista: z.string().min(1).max(100).optional(),
         remessas: z.array(wayDataShipmentSchema).min(1),
       }).superRefine((vehicle, ctx) => {
+        if (vehicle.nomeMotorista && !vehicle.cpfMotorista) {
+          ctx.addIssue({ code: "custom", message: "nomeMotorista deve ser enviado em conjunto com cpfMotorista", path: ["nomeMotorista"] });
+        }
         const unique = new Set(vehicle.remessas.map((item) => item.codigoCliente));
         if (unique.size > 199) {
           ctx.addIssue({ code: "custom", message: "A roteirização excede 199 clientes únicos por veículo", path: ["remessas"] });

@@ -9,7 +9,7 @@ describe("JsonlStore", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "cigam-waydata-"));
     const store = new JsonlStore(root);
     await store.writeLog({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), correlationId: "A", direction: "INTERNAL", entity: "SYSTEM", operation: "SYNC", reference: {}, attempt: 1, status: "SUCCESS", message: "Bearer abc.def.ghi", errorCode: "token-hidden" });
-    const day = new Date().toISOString().slice(0, 10);
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
     const events = await store.readLogs(day, day);
     expect(events[0]?.message).toBe("Bearer <REDACTED>");
     await writeFile(path.join(root, "logs", `integration-${day}.jsonl`), '{"incomplete":', { flag: "a" });

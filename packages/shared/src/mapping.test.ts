@@ -130,6 +130,17 @@ describe("CIGAM / IntegraWay mapping", () => {
     expect(toLocalDateTime("/Date(1785726000000)/")).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
   });
 
+  it("sends cpfMotorista and nomeMotorista together for automatic driver registration", () => {
+    const withDriver = { ...detalhes, veiculosRoteirizacao: [{ ...detalhes.veiculosRoteirizacao[0], cpfMotorista: "123.456.789-09", nomeMotorista: " João da Silva " }] };
+    const vehicle = mapCargaDetalhesToRouting(withDriver).veiculosRoteirizacao[0];
+    expect(vehicle).toMatchObject({ placa: "JIU9241", cpfMotorista: "12345678909", nomeMotorista: "João da Silva" });
+  });
+
+  it("omits nomeMotorista when there is no CPF", () => {
+    const withName = { ...detalhes, veiculosRoteirizacao: [{ ...detalhes.veiculosRoteirizacao[0], nomeMotorista: "João" }] };
+    expect(mapCargaDetalhesToRouting(withName).veiculosRoteirizacao[0]).not.toHaveProperty("nomeMotorista");
+  });
+
   it("maps Cargas_BuscarDetalhes to a WayData routing payload", () => {
     const routing = mapCargaDetalhesToRouting(detalhes);
     expect(routing.nome).toBe("36858-0803");
@@ -137,6 +148,7 @@ describe("CIGAM / IntegraWay mapping", () => {
     expect(routing.codigoClientePartida).toBe("002628");
     expect(routing.veiculosRoteirizacao[0]?.placa).toBe("JIU9241");
     expect(routing.veiculosRoteirizacao[0]?.codigoMotorista).toBe(2727);
+    expect(routing.veiculosRoteirizacao[0]?.cpfMotorista).toBeUndefined();
     expect(routing.dataFinal).toBe("2026-08-03T23:59:00");
     expect(routing.veiculosRoteirizacao[0]?.remessas[0]).toMatchObject({ numeroRemessa: "36858", cnpjEmissor: "11.652.819/0001-50", nfe: 434673 });
     const route = mapCargaRowToRoute(detalhes, { company: "PANEBRAS", branch: "001", includeRouting: true });

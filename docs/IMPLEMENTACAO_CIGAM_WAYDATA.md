@@ -358,14 +358,16 @@ O payload contém:
 - cliente de partida;
 - cliente de chegada;
 - datas inicial e final;
-- veículos;
-- motorista;
+- veículos (`placa` identifica o ativo; se ainda não existir na WayData, ela o cadastra);
+- motorista: `cpfMotorista` e `nomeMotorista`, enviados em conjunto, usados pela WayData para cadastrar o motorista automaticamente quando ele ainda não existe (`codigoMotorista` segue sendo enviado);
 - remessas;
 - NF-e, CT-e e manifesto;
 - emissor, vendedor e pagamento;
 - itens, quantidades, pesos, volumes e valores;
 - frete e datas operacionais;
 - código da roteirização;
+
+> **Origem do CPF/nome do motorista:** `Cargas_BuscarDetalhes` devolve apenas `codigoMotorista`. O `CigamClient` consulta `Empresas` por esse código (o motorista é um cadastro de pessoa física, com `cnpj_cpf`) e preenche `cpfMotorista`/`nomeMotorista`. Se o cadastro não existir ou a consulta falhar, a roteirização segue só com `placa` e `codigoMotorista`. A WayData não atualiza motorista já cadastrado.
 - flag de tracking.
 
 Regras relevantes:

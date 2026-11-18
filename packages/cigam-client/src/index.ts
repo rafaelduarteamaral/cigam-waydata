@@ -5,12 +5,14 @@ import {
   deliveryResultSchema,
   digits,
   mapCargaRowToRoute,
+  mapEmpresaToDriver,
   mapEmpresaToWayDataClient,
   mapIntegrationStatusToSituacao,
   toAsmxDate,
   toAsmxTime,
   unwrapAsmx,
   type AsmxRecord,
+  type CigamDriver,
   type CigamRoute,
   type DeliveryResult,
   type WayDataClient,
@@ -123,6 +125,7 @@ export class CigamClient {
   private readonly asmx: CigamAsmxOptions | undefined;
   private readonly companyByCode = new Map<string, WayDataClient>();
   private companiesIndexed = false;
+  private readonly driverByCode = new Map<string, CigamDriver>();
 
   constructor(options: { baseUrl: string; token: string; authorizationScheme?: "bearer" | "raw"; timeoutMs?: number; maxRetries?: number; paths?: Partial<CigamPaths>; asmx?: CigamAsmxOptions }) {
     this.http = new HttpClient({ baseUrl: options.baseUrl, ...(options.authorizationScheme === "raw" ? { authorizationHeader: options.token } : { token: options.token }), ...(options.timeoutMs != null ? { timeoutMs: options.timeoutMs } : {}), ...(options.maxRetries != null ? { maxRetries: options.maxRetries } : {}) });
@@ -150,7 +153,42 @@ export class CigamClient {
       retry: true,
       body: JSON.stringify({ filtros: { pagina: "1", ...extra } }),
     });
-    return unwrapAsmx(raw);
+    const rows = unwrapAsmx(raw);
+    this.rememberDrivers(rows);
+    return rows;
+  }
+
+  private rememberDrivers(rows: AsmxRecord[]): void {
+    for (const row of rows) {
+      const code = String(row.cd_empresa ?? row.Cd_empresa ?? "").trim();
+      const driver = code ? mapEmpresaToDriver(row) : null;
+      if (driver) this.driverByCode.set(code.replace(/^0+/, "") || "0", driver);
+    }
+  }
+
+  /** Motorista (CPF e nome) cadastrado no CIGAM sob o código `codigoMotorista` da carga. */
+  async getDriver(code: string | number): Promise<CigamDriver | null> {
+    if (!this.asmx) return null;
+    const key = String(code).trim().replace(/^0+/, "") || "0";
+    if (!this.driverByCode.has(key)) await this.getCompany({ code: String(code).trim() });
+    return this.driverByCode.get(key) ?? null;
+  }
+
+  /** Completa `cpfMotorista`/`nomeMotorista` a partir do cadastro CIGAM; falhas na busca não bloqueiam a integração. */
+  private async withDriverData(route: CigamRoute): Promise<CigamRoute> {
+    const vehicles = (route.routing as { veiculosRoteirizacao?: unknown } | undefined)?.veiculosRoteirizacao;
+    if (!this.asmx || !Array.isArray(vehicles)) return route;
+    const enriched = await Promise.all(vehicles.map(async (vehicle) => {
+      const record = vehicle && typeof vehicle === "object" && !Array.isArray(vehicle) ? vehicle as AsmxRecord : undefined;
+      if (!record || record.cpfMotorista || record.codigoMotorista === undefined) return vehicle;
+      try {
+        const driver = await this.getDriver(record.codigoMotorista as string | number);
+        return driver ? { ...record, cpfMotorista: driver.cpf, nomeMotorista: driver.nome } : vehicle;
+      } catch {
+        return vehicle;
+      }
+    }));
+    return { ...route, routing: { ...route.routing, veiculosRoteirizacao: enriched } };
   }
 
   private findCompanyInRows(rows: AsmxRecord[], code: string): WayDataClient | null {
@@ -228,8 +266,8 @@ export class CigamClient {
       if (candidates.size === 0 && Number.isFinite(declaredPages) && declaredPages > 1) {
         throw new Error(`CIGAM informou ${declaredPages} página(s), mas Cargas_Buscar não retornou codigoRoteirizacao nem numeroRemessa válidos`);
       }
-      return [...candidates.entries()]
-        .map(([id, candidate], index) => mapCargaRowToRoute(candidate.row, { company: this.asmx!.company ?? "PANEBRAS", branch: this.asmx!.unit, index, includeRouting: candidate.useSummary }));
+      return Promise.all([...candidates.entries()]
+        .map(([id, candidate], index) => this.withDriverData(mapCargaRowToRoute(candidate.row, { company: this.asmx!.company ?? "PANEBRAS", branch: this.asmx!.unit, index, includeRouting: candidate.useSummary }))));
     }
     const separator = this.paths.pendingRoutes.includes("?") ? "&" : "?";
     const query = since ? `${separator}updatedSince=${encodeURIComponent(since)}` : "";
@@ -247,7 +285,7 @@ export class CigamClient {
       });
       const row = unwrapAsmx(raw)[0];
       if (!row) throw new Error(`Carga ${id} não encontrada no CIGAM`);
-      return mapCargaRowToRoute(row, { company: this.asmx.company ?? "PANEBRAS", branch: this.asmx.unit, includeRouting: true });
+      return this.withDriverData(mapCargaRowToRoute(row, { company: this.asmx.company ?? "PANEBRAS", branch: this.asmx.unit, includeRouting: true }));
     }
     return cigamRouteSchema.parse(await this.http.request(at(this.paths.route, id)));
   }

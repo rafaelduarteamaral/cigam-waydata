@@ -87,6 +87,36 @@ describe("CigamClient ASMX", () => {
     expect(bodies.some((body) => body.acompanhamento?.Codigo_titulo === "INT" && body.acompanhamento?.Anexos === "" && String(body.acompanhamento?.Historico).includes("codigoRoteirizacao=7001"))).toBe(true);
   });
 
+  it("fills cpfMotorista and nomeMotorista from the Empresas record of codigoMotorista", async () => {
+    const remessa = { numeroRemessa: "36858", codigoCliente: "001277", nfe: 434673, cnpjEmissor: "11652819000150", itensRemessa: [{ codigo: "040010001", descricao: "PAO", volumeUnitario: 0, pesoUnitario: 100, valorUnitario: 7.02, quantidade: 100 }] };
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/Cargas_BuscarDetalhes")) {
+        return new Response(JSON.stringify({ d: [{ nome: "CARGAS", codigoClientePartida: "001277", codigoClienteChegada: "001277", dataInicial: "2026-08-08T08:00:00", dataFinal: "2026-08-08T18:00:00", codigoRoteirizacao: 36858, veiculosRoteirizacao: [{ placa: "JIU9241", codigoMotorista: "002727", remessas: [remessa] }] }] }), { status: 200 });
+      }
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (body.filtros?.cd_empresa) return new Response(JSON.stringify({ d: [{ cd_empresa: "002727", razao_social: "Motorista Teste", cnpj_cpf: "529.982.247-25", cep: "70000000" }] }), { status: 200 });
+      return new Response(JSON.stringify({ d: [{ mensagem: "ok" }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "t", asmx: { unit: "001" } });
+    const route = await client.getRoute("36858");
+    const vehicle = (route.routing as { veiculosRoteirizacao: Array<Record<string, unknown>> }).veiculosRoteirizacao[0];
+    expect(vehicle).toMatchObject({ placa: "JIU9241", cpfMotorista: "52998224725", nomeMotorista: "Motorista Teste" });
+  });
+
+  it("keeps the route when the driver lookup fails", async () => {
+    const remessa = { numeroRemessa: "36858", codigoCliente: "001277", nfe: 434673, cnpjEmissor: "11652819000150", itensRemessa: [{ codigo: "040010001", descricao: "PAO", volumeUnitario: 0, pesoUnitario: 100, valorUnitario: 7.02, quantidade: 100 }] };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/Cargas_BuscarDetalhes")) return new Response(JSON.stringify({ d: [{ nome: "CARGAS", codigoClientePartida: "001277", codigoClienteChegada: "001277", dataInicial: "2026-08-08T08:00:00", dataFinal: "2026-08-08T18:00:00", codigoRoteirizacao: 36858, veiculosRoteirizacao: [{ placa: "JIU9241", codigoMotorista: "002727", remessas: [remessa] }] }] }), { status: 200 });
+      return new Response("erro", { status: 500 });
+    }));
+    const client = new CigamClient({ baseUrl: "https://cigam.test/API.asmx", token: "t", asmx: { unit: "001" }, maxRetries: 0 });
+    const route = await client.getRoute("36858");
+    const vehicle = (route.routing as { veiculosRoteirizacao: Array<Record<string, unknown>> }).veiculosRoteirizacao[0];
+    expect(vehicle).toMatchObject({ placa: "JIU9241" });
+    expect(vehicle).not.toHaveProperty("cpfMotorista");
+  });
+
   it("finds Empresas by code when cd_empresa filter is ignored", async () => {
     const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}"));

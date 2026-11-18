@@ -209,9 +209,13 @@ export function mapCargaDetalhesToRouting(row: AsmxRecord, externalCode = 0): Wa
     const clients = uniqueClients(remessas.map((item) => item.codigoCliente));
     if (clients.length > 199) throw new Error("A roteirização excede 199 clientes únicos por veículo");
     const driver = Number.parseInt(String(record.codigoMotorista ?? ""), 10);
+    const cpfMotorista = stringValue(record.cpfMotorista)?.replace(/\D/g, "");
+    const nomeMotorista = stringValue(record.nomeMotorista);
     vehicles.push({
       ...(stringValue(record.placa) ? { placa: stringValue(record.placa) } : {}),
       ...(Number.isInteger(driver) ? { codigoMotorista: driver } : {}),
+      // WayData cadastra o motorista automaticamente quando CPF e nome são enviados juntos.
+      ...(cpfMotorista ? { cpfMotorista, ...(nomeMotorista ? { nomeMotorista: clip(nomeMotorista, 100) } : {}) } : {}),
       remessas,
     });
   }
@@ -303,6 +307,19 @@ export function mapCargaRowToRoute(row: AsmxRecord, options: { company: string; 
   }
   const routing = mapCargaDetalhesToRouting(row, 0);
   return cigamRouteSchema.parse({ ...base, clients: clientsFromRouting(routing), invoices: invoicesFromRouting(routing), routing });
+}
+
+export interface CigamDriver {
+  cpf: string;
+  nome: string;
+}
+
+/** Extrai CPF e nome de uma linha de `Empresas` que representa um motorista (pessoa física). */
+export function mapEmpresaToDriver(row: AsmxRecord): CigamDriver | null {
+  const cpf = digits(row.cnpj_cpf ?? row.cnpjcpf ?? row.cpf);
+  const nome = stringValue(row.razao_social) ?? stringValue(row.nome) ?? stringValue(row.nome_fantasia) ?? stringValue(row.fantasia);
+  if (cpf.length !== 11 || !nome) return null;
+  return { cpf, nome: clip(nome, 100) };
 }
 
 export function mapEmpresaToWayDataClient(row: AsmxRecord, fallbackCode: string): WayDataClient | null {
